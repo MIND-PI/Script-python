@@ -21,9 +21,8 @@ def read_content():
 
 def verificar_uso_(porcentagem):
     alerta = False
-    if(porcentagem > 90):
+    if(porcentagem >= 90):
         alerta = True
-
     return alerta
 
 
@@ -46,13 +45,21 @@ def uso_cpu_by_user():
     print(f"Média de uso da CPU nos últimos registros: {media:.2f}%")
 
     contadorAlertas = 0
+    horariosAlerta = []
+    contadorAtencao = 0
     for indice, linha in registros.iterrows():
-        if verificar_uso_(linha['porcentagem_uso_cpu']):
+        porcentagemAtual = verificar_uso_(linha['porcentagem_uso_cpu'])
+        if porcentagemAtual:
             contadorAlertas += 1
+            horariosAlerta.append(linha['timestamp'].strftime("Y-%m-%d %H:%M:%S"))
         print(f'User: {linha['user']}, ID_CLP: {linha['id_clp']}, Horário do registro: {linha['timestamp'].strftime("%Y-%m-%d %H:%M:%S")}, Uso de CPU: {linha['porcentagem_uso_cpu']}%\n\n')
 
     if contadorAlertas > 0:
         print(f"Atenção, você obteve {contadorAlertas} alertas de uso de cpu excessivo")
+        for i in range(0, len(horariosAlerta), 1):
+            print(f"Você obteve um alerta crítico as: {horariosAlerta[i]}")
+
+    
 
 def uso_ram_by_user():
     df = ''
@@ -72,13 +79,17 @@ def uso_ram_by_user():
     print(f"Média de uso da RAM nos últimos registros: {media:.2f}%")
 
     contadorAlertas = 0
+    horariosAlerta = []
     for indice, linha in registros.iterrows():
         if verificar_uso_(linha['porcentagem_uso_ram']):
             contadorAlertas += 1
+            horariosAlerta.append(linha['timestamp'].strftime("%Y-%m-%d %H:%M:%S"))
         print(f'User: {linha['user']}, ID_CLP: {linha['id_clp']}, Horário do registro: {linha['timestamp'].strftime("%Y-%m-%d %H:%M:%S")}, Uso de RAM: {linha['porcentagem_uso_ram']}%\n\n')
 
     if contadorAlertas > 0:
         print(f"ATENÇÃO, VOCÊ OBTEVE {contadorAlertas} ALERTA(S) POR USO DE RAM EXCESSIVO!")
+        for i in range(0, len(horariosAlerta), 1):
+            print(f"Você obteve um alerta crítico às {horariosAlerta[i]}")
     
 
 
@@ -110,8 +121,8 @@ while(continuar != 'n'):
     print("Selecione qual opção deseja: ")
     print("""
         1 - Uso da CPU por usuário
-        2 - Uso médio de RAM no último dia por usuário
-        3 - Cálculo do tempo de leitura por usuário; 
+        2 - Uso de RAM por usuário
+        3 - Cálculo do Scan Time por usuário; 
         """)
     opt = input("Insira a opção: ")
     if(opt == '1'):
