@@ -18,7 +18,7 @@ write_header()
 
 contador = 0
 while(contador<10):
-    time.sleep(15)
+    time.sleep(10)
 
     user_fornecedor = "Ricardo"
     user_cliente = 'Eduardo';

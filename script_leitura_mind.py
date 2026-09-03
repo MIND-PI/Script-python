@@ -7,7 +7,7 @@ import glob
 init(autoreset=True)
 
 def read_content():
-    arquivos_csv = glob.glob('C:/Users/eduar/OneDrive/Área de Trabalho/SPTECH/2SEM/CALCULO_COMP/PYTHON/0817/leituras.csv')
+    arquivos_csv = glob.glob('../Script-python/leituras.csv')
 
 
     listaDataframes = []
