@@ -32,7 +32,7 @@ while(contador<10):
 
     ramPercent = psutil.virtual_memory().percent 
 
-    # Disco
+    # SCAN TIME (Disco)
     if(pct_cpu > 90):
         avg_response_time = (psutil.disk_io_counters().read_time / psutil.disk_io_counters().read_count) + random.uniform(2, 5);
     elif(pct_cpu > 60):

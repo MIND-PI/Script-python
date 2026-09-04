@@ -7,7 +7,7 @@ import glob
 init(autoreset=True)
 
 def read_content():
-    arquivos_csv = glob.glob('../Script-python/leituras.csv')
+    arquivos_csv = glob.glob('../Script-python/*.csv')
 
 
     listaDataframes = []
