@@ -18,7 +18,7 @@ def read_content():
 
     df_final = pd.concat(listaDataframes, ignore_index=True)
 
-    return df_final;
+    return df_final
     
 
 def verificar_uso_(porcentagem):
@@ -28,7 +28,7 @@ def verificar_uso_(porcentagem):
     elif(porcentagem >=60):
         alerta = "Amarelo"
     else:
-        return;
+        return
 
     return alerta
 

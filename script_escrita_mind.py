@@ -21,7 +21,7 @@ while(contador<10):
     time.sleep(10)
 
     user_fornecedor = "Ricardo"
-    user_cliente = 'Eduardo';
+    user_cliente = 'Eduardo'
 
     # Timestamp
     timestamp = datetime.now()
