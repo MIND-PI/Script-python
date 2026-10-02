@@ -1,0 +1,4 @@
+psutil
+ping3
+python-dotenv
+boto3
