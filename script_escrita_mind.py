@@ -98,8 +98,10 @@ def obter_id_clp():
 
 id_clp = obter_id_clp()
 
+timestamp = datetime.now()
 # Nome do CSV = id do CLP + id da empresa
-CSV_PATH = os.path.join(BASE_DIR, f'{id_clp}_{id_empresa}.csv')
+CSV_PATH = os.path.join(BASE_DIR, f'{timestamp.year}-{timestamp.month}-{timestamp.day}_{timestamp.hour}-{timestamp.minute}_{id_empresa}-{id_clp}.csv')
+# nome do arquivo ano-mes-dia_hora-minuto_idEmpresa-idClp.csv
 
 def medir_latencia(destino, porta=53, timeout_s=1):
     #Mede a latência abrindo uma conexão TCP simples até o destino.
@@ -179,7 +181,7 @@ def write_content():
             top_procs[1],
             top_procs[2],
         ])
-path_name = f'01-bronze/{id_empresa}/{id_clp}/{os.path.basename(CSV_PATH)}'
+path_name = '01-bronze/'
 
 def upload_csv(file, bucket, path):
     try:
@@ -251,6 +253,8 @@ while(contador < 10):
     write_content()
 if enviar_bucket:
     upload_csv(CSV_PATH, AWS_BUCKET_NAME, path_name)
+
+
 # O SCRIPT ESPERA UM ARQUIVO .env COM:
 # ID_EMPRESA=empresaId (número inteiro, FK pra tabela empresa)
 # MODELO_PLC_MONITORADO=modeloId (número inteiro, FK pra tabela modelo)
@@ -276,4 +280,5 @@ if enviar_bucket:
 #     CONSTRAINT fk_clp_modelo FOREIGN KEY (modeloId) REFERENCES modelo(idmodelo)
 # );
 
-# PROCESSOS
+# PROCESSOS /
+# nome do arquivo ano-mes-dia_hora-minuto_idEmpresa-idClp.csv
