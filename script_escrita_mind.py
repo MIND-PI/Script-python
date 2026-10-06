@@ -13,6 +13,8 @@ user = "CPL_YAGHO"
 # user = "CPL_RAFAEL"
 # user = "CPL_DANIEL"
 
+enviar_bucket = True
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, '.env')
 
@@ -247,8 +249,8 @@ while(contador < 10):
     contador += 1
     top_procs = get_top_processos(3)
     write_content()
-
-upload_csv(CSV_PATH, AWS_BUCKET_NAME, path_name)
+if enviar_bucket:
+    upload_csv(CSV_PATH, AWS_BUCKET_NAME, path_name)
 # O SCRIPT ESPERA UM ARQUIVO .env COM:
 # ID_EMPRESA=empresaId (número inteiro, FK pra tabela empresa)
 # MODELO_PLC_MONITORADO=modeloId (número inteiro, FK pra tabela modelo)
