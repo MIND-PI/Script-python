@@ -1,3 +1,0 @@
-user,modelo_clp,id_empresa,timestamp,porcentagem_uso_cpu,ram_total_gb,ram_disponivel_gb,ram_usada_gb,porcentagem_uso_ram,porcentagem_uso_swap,scan_time_ms,latencia_ms,perda_pacotes,vel_upload,vel_download,top1_processo,top2_processo,top3_processo
-CPL_YAGHO,MODELO_DO_PLC,1,2026-10-02 12:46:18.248098,10.8,15.668815612792969,4.059215545654297,11.609600067138672,74.1,8.4,24.058961063061155,4.6596527099609375,0,0.05407175328582525,0.10582469776272774,Code.exe,System,Taskmgr.exe
-CPL_YAGHO,MODELO_DO_PLC,1,2026-10-02 12:46:29.212445,10.2,15.668815612792969,4.0625762939453125,11.606239318847656,74.1,8.4,22.27254109925204,59.48615074157715,0,0.05409055296331644,0.10583667922765017,System,Taskmgr.exe,Code.exe
