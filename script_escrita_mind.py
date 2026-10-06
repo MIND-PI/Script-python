@@ -98,9 +98,8 @@ def obter_id_clp():
 
 id_clp = obter_id_clp()
 
-timestamp = datetime.now()
-# Nome do CSV = id do CLP + id da empresa
-CSV_PATH = os.path.join(BASE_DIR, f'{timestamp.year}-{timestamp.month}-{timestamp.day}_{timestamp.hour}-{timestamp.minute}_{id_empresa}-{id_clp}.csv')
+# Nome do CSV = 
+CSV_PATH = os.path.join(BASE_DIR,'csvDados.csv')
 # nome do arquivo ano-mes-dia_hora-minuto_idEmpresa-idClp.csv
 
 def medir_latencia(destino, porta=53, timeout_s=1):
@@ -181,15 +180,19 @@ def write_content():
             top_procs[1],
             top_procs[2],
         ])
-path_name = '01-bronze/'
 
 def upload_csv(file, bucket, path):
     try:
         s3 = session.client('s3')
         s3.upload_file(file, bucket, path)
+
+        os.remove(file)
+        print("Arquivo local 'csvDados.csv' deletado com sucesso.")
     except ClientError as e:
         print(f"Erro ao tentar enviar o arquivo ao bucket: {e}")
         sys.exit(1)
+    except OSError as e:
+        print(f"Erro ao tentar apagar o arquivo local: {e}")
 
 
 write_header()
@@ -251,7 +254,11 @@ while(contador < 10):
     contador += 1
     top_procs = get_top_processos(3)
     write_content()
+
 if enviar_bucket:
+    timestamp = datetime.now();
+    path_name = f'01-bronze/{timestamp.year}-{timestamp.month}-{timestamp.day}_{timestamp.hour}-{timestamp.minute}_{id_empresa}-{id_clp}.csv'
+
     upload_csv(CSV_PATH, AWS_BUCKET_NAME, path_name)
 
 
