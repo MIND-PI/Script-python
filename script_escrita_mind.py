@@ -179,7 +179,7 @@ def write_content():
             top_procs[1],
             top_procs[2],
         ])
-path_name = f'bronze/{id_empresa}/{id_clp}/{os.path.basename(CSV_PATH)}'
+path_name = f'01-bronze/{id_empresa}/{id_clp}/{os.path.basename(CSV_PATH)}'
 
 def upload_csv(file, bucket, path):
     try:
