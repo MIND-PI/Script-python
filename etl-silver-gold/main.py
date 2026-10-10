@@ -4,7 +4,10 @@ import os
 from datetime import datetime, timezone, timedelta
 import mysql.connector
 from mysql.connector.cursor import MySQLCursor
-
+from botocore.client import BaseClient
+import json
+from io import BytesIO
+import pandas as pd
 
 
 def silver_read(s3, prefix, start: datetime, end: datetime):
@@ -100,12 +103,24 @@ def get_measurements(id):
     return dict(result)
 
 
-# def add_measurements_json(json_clp: dict, cursor: MySQLCursor):
-#     for ch in json_clp:
-#         measurements = get_measurements(cursor, ch)
-#         json_clp[ch]["medicoes"] = dict(measurements)
+def get_csv(key, s3: BaseClient):
 
-#     return json_clp
+    return s3.get_object(
+        Bucket=os.getenv("AWS_BUCKET_NAME"),
+        Key=key
+    )
+
+def convert_csv_to_df(value, s3: BaseClient, df):
+    for csv in value.get("csv"):
+        response = get_csv(csv, s3)
+        if df is None:
+            df = pd.read_csv(BytesIO(response["Body"].read()))
+            continue
+        
+        data = pd.read_csv(BytesIO(response["Body"].read()))
+        df = pd.concat([df, data], ignore_index=True)
+    return df
+
 
 
 def main():
@@ -123,10 +138,14 @@ def main():
     # Validando se o json tem algo
     if not json_clp:
         return
-
+    
+    for ch, value in json_clp.items():
+        df = None
+        df = convert_csv_to_df(value, s3, df)
 
     # TODO: Analise kpi cliente
-        # TODO: Consumo cpu, memória ram, uptime, total de alertas, health Score do clp, pacotes recebidos e enviados, perdas de pacote
+        # TODO: Consumo cpu, memória ram, uptime, health Score do clp, pacotes recebidos e enviados, perdas de pacote, total de alertas, scan time max, scan time maximo, pico de cpu, modelo, processo1, processo2, processo3, processo1 porcentagem, processo2 porcentagem, processo3 porcentagem
+
         # TODO: Ordenar processos com maior consumo e porcentagem da cpu
         # TODO: COmunicação: ping nos ultimos minutos
         # TODO: 
