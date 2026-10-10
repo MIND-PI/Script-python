@@ -69,7 +69,7 @@ def get_id_company(key):
 def validate_json(json_clp: dict, id_company, id_clp, key):
     if id_clp not in json_clp:
         json_clp[id_clp] = {
-            "medicoes": {},
+            "medicoes": get_measurements(id_clp),
             "csv": [key],
             "company": id_company
         }
@@ -78,8 +78,10 @@ def validate_json(json_clp: dict, id_company, id_clp, key):
 
     return json_clp
         
-
-def get_measurements(cursor: MySQLCursor, id):
+# Relação entre id do clp e medições
+def get_measurements(id):
+    conn = config.conn_mysql()
+    cursor = conn.cursor()
     query = """SELECT 
 	apelido,
     unidade_medida
@@ -95,15 +97,15 @@ def get_measurements(cursor: MySQLCursor, id):
 
     cursor.close()
 
-    return result
+    return dict(result)
 
 
-def add_measurements_json(json_clp: dict, cursor: MySQLCursor):
-    for ch in json_clp:
-        measurements = get_measurements(cursor, ch)
-        json_clp[ch]["medicoes"] = dict(measurements)
+# def add_measurements_json(json_clp: dict, cursor: MySQLCursor):
+#     for ch in json_clp:
+#         measurements = get_measurements(cursor, ch)
+#         json_clp[ch]["medicoes"] = dict(measurements)
 
-    return json_clp
+#     return json_clp
 
 
 def main():
@@ -122,12 +124,6 @@ def main():
     if not json_clp:
         return
 
-    # Criando conexão com o banco mysql
-    conn = config.conn_mysql()
-    cursor = conn.cursor()
-
-    # Relação entre id do clp e tipo de medição
-    json_clp = add_measurements_json(json_clp, cursor)
 
     # TODO: Analise kpi cliente
         # TODO: Consumo cpu, memória ram, uptime, total de alertas, health Score do clp, pacotes recebidos e enviados, perdas de pacote
