@@ -3,6 +3,7 @@ import boto3
 import os
 from datetime import datetime, timezone, timedelta
 import mysql.connector
+from mysql.connector.cursor import MySQLCursor
 
 
 
@@ -68,7 +69,7 @@ def get_id_company(key):
 def validate_json(json_clp: dict, id_company, id_clp, key):
     if id_clp not in json_clp:
         json_clp[id_clp] = {
-            "medidas": [],
+            "medicoes": {},
             "csv": [key],
             "company": id_company
         }
@@ -77,6 +78,32 @@ def validate_json(json_clp: dict, id_company, id_clp, key):
 
     return json_clp
         
+
+def get_measurements(cursor: MySQLCursor, id):
+    query = """SELECT 
+	apelido,
+    unidade_medida
+    FROM clp_medicao cm
+    JOIN tipo_medicao tm ON tm.idTipoMedicao = cm.tipoMedicaoId
+    WHERE clpId = %s;"""
+
+    filter = (id, )
+
+    cursor.execute(query, filter)
+
+    result = cursor.fetchall()
+
+    cursor.close()
+
+    return result
+
+
+def add_measurements_json(json_clp: dict, cursor: MySQLCursor):
+    for ch in json_clp:
+        measurements = get_measurements(cursor, ch)
+        json_clp[ch]["medicoes"] = dict(measurements)
+
+    return json_clp
 
 
 def main():
@@ -95,11 +122,18 @@ def main():
     if not json_clp:
         return
 
+    # Criando conexão com o banco mysql
     conn = config.conn_mysql()
     cursor = conn.cursor()
 
-    # TODO: Relação empresa x tipos de medição    
+    # Relação entre id do clp e tipo de medição
+    json_clp = add_measurements_json(json_clp, cursor)
 
+    # TODO: Analise kpi cliente
+        # TODO: Consumo cpu, memória ram, uptime, total de alertas, health Score do clp, pacotes recebidos e enviados, perdas de pacote
+        # TODO: Ordenar processos com maior consumo e porcentagem da cpu
+        # TODO: COmunicação: ping nos ultimos minutos
+        # TODO: 
 
     # TODO: Analises de cada kpi fornecedor
         # TODO: Cliente com menos alerta
@@ -107,10 +141,7 @@ def main():
         # TODO: Modelo com mais alerta
         # TODO: MOdelo com menos alerta
         # TODO: Recurso mais saturado
-    # TODO: Analise kpi cliente
-        # TODO: Consumo cpu, memória ram, uptime, total de alertas, health Score do clp, pacotes recebidos e enviados, perdas de pacote
-        # TODO: Ordenar processos com maior consumo e porcentagem da cpu
-        # TODO: COmunicação: ping nos ultimos minutos
+
 
 if __name__ == "__main__":
     main()
