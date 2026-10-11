@@ -121,24 +121,46 @@ def convert_csv_to_df(value, s3: BaseClient, df):
         df = pd.concat([df, data], ignore_index=True)
     return df
 
-def micro_analysis_plc(df: pd.DataFrame):
+def micro_analysis_plc(df: pd.DataFrame, value: dict):
     date = df["timestamp"].max()
-    df_new = pd.DataFrame({
+
+    df_new = pd.DataFrame(
+        {
         "id_clp":[df.iloc[0]["id_clp"]],
         "modelo_clp": [df.iloc[0]["modelo_clp"]],
         "id_empresa": [df.iloc[0]["id_empresa"]],
         "timestamp": [date],
-        "porcentagem_uso_cpu": [df[date == df["timestamp"]]["porcentagem_uso_cpu"]],
-        "pico_porcentagem_uso_cpu": [df["porcentagem_uso_cpu"].max()],
-        "consumo_memoria_ram": [df[date == df["timestamp"]]["ram_usada_gb"]],
-        "porcentagem_uso_ram": [df[date == df["timestamp"]]["porcentagem_uso_ram"]],
-        "pico_consumo_memoria_ram": [df["ram_usada_gb"].max()],
-        "scan_time_atual": [df[date == df["timestamp"]]["scan_time_ms"]],
-        "scan_time_pico": [df["scan_time_ms"].max()],
-        "pacotes_enviados": [df[date == df["timestamp"]]["vel_upload"]],
-        "pacotes_recebido": [df[date == df["timestamp"]]["vel_download"]],
-        "perda_pacotes": [df[date == df["timestamp"]]["perda_pacotes"]],
-    })
+        }
+    
+    )
+    if "CPU" in value:
+        df_new["porcentagem_uso_cpu"] = [df[date == df["timestamp"]]["porcentagem_uso_cpu"]]
+        df_new["pico_porcentagem_uso_cpu"] = [df["porcentagem_uso_cpu"].max()]
+    
+    if "SCAN" in value:
+        df_new["scan_time_atual"] = [df[date == df["timestamp"]]["scan_time_ms"]],
+        df_new["scan_time_pico"] = [df["scan_time_ms"].max()]
+
+    if "RAM" in value and value.get("RAM", "") == "GB":
+        df_new["consumo_memoria_ram"] = [df[date == df["timestamp"]]["ram_usada_gb"]],
+        df_new["pico_consumo_memoria_ram_gb"] = [df["ram_usada_gb"].max()]
+
+    if "RAM" in value and value.get("RAM", "") == "%":
+        df_new["porcentagem_uso_ram"] = [df[date == df["timestamp"]]["porcentagem_uso_ram"]]
+        df_new["pico_consumo_memoria_ram_porcentagem"] = [df["porcentagem_uso_ram"].max()]
+
+    if "PACOTES_ENVIADOS" in value:
+        df_new["pacotes_enviados"] = [df[date == df["timestamp"]]["vel_upload"]]
+
+    if "PACOTES_RECEBIDOS" in value:
+        df_new["pacotes_recebido"] = [df[date == df["timestamp"]]["vel_download"]]
+
+    if "PERDA_PACOTES" in value:
+        df_new["perda_pacote"] = [df[date == df["timestamp"]]["perda_pacotes"]]
+
+    if "SWAP" in value:
+        df_new["porcentagem_uso_swap"] = [df[date == df["timestamp"]]["porcentagem_uso_swap"]]
+
     return df_new
 
 def main():
@@ -160,14 +182,13 @@ def main():
     for ch, value in json_clp.items():
         df = None
         df = convert_csv_to_df(value, s3, df)
-        micro_analysis = micro_analysis_plc(df)
+        micro_analysis = micro_analysis_plc(df, value["medicoes"])
         print(micro_analysis)
-        print(value)
         
     
     
     # TODO: Analise kpi cliente
-        # TODO: Consumo cpu, memória ram, uptime, health Score do clp, pacotes recebidos e enviados, perdas de pacote, total de alertas, scan time max, scan time maximo, pico de cpu, modelo, processo1, processo2, processo3, processo1 porcentagem, processo2 porcentagem, processo3 porcentagem
+        # TODO: uptime, health Score do clp, total de alertas, processo1, processo2, processo3, processo1 porcentagem, processo2 porcentagem, processo3 porcentagem
 
         # TODO: Ordenar processos com maior consumo e porcentagem da cpu
         # TODO: COmunicação: ping nos ultimos minutos
