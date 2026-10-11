@@ -3,6 +3,7 @@ import os
 import csv
 from dotenv import load_dotenv
 from io import StringIO
+import math
 
 load_dotenv()
 
@@ -12,17 +13,42 @@ s3 = boto3.client("s3")
 
 print(f"Bucket configurado: {BUCKET}")
 
+def limpar_valor(valor):
+    if valor is None:
+        return ""
+
+    return valor.strip()
+
+def validar_percentual(valor, coluna):
+    if valor == "":
+        return valor
+    try:
+        numero = float(valor)
+        if math.isfinite(numero) and 0 <= numero <= 100:
+            return valor
+        print(f"Aviso: {coluna} fora do intervalo: {valor}")
+        return valor
+    except ValueError:
+        print(f"Aviso: {coluna} contém valor inválido: {valor}")
+        return valor
+
 
 def converter_uptime(uptime_segundos):
-    uptime = int(float(uptime_segundos))
+    if uptime_segundos is None or uptime_segundos.strip() == "":
+        return ""
+    try:
+        uptime = int(float(uptime_segundos))
+        if uptime < 0:
+            print(f"Aviso: uptime inválido: {uptime_segundos}")
+            return ""
 
-    horas = uptime // 3600
-    minutos = (uptime % 3600) // 60
+        horas = uptime // 3600
+        minutos = (uptime % 3600) // 60
+        return f"{horas:02d}:{minutos:02d}"
+    except ValueError:
+        print(f"Aviso: uptime inválido: {uptime_segundos}")
+        return ""
 
-    return f"{horas:02d}:{minutos:02d}"
-
-
-# Lista os arquivos da Bronze
 resposta = s3.list_objects_v2(
     Bucket=BUCKET,
     Prefix="bronze/"
@@ -31,17 +57,14 @@ resposta = s3.list_objects_v2(
 for arquivo in resposta.get("Contents", []):
     print(arquivo["Key"])
 
-# Percorre os arquivos encontrados
 for arquivo in resposta.get("Contents", []):
     arquivo_bronze = arquivo["Key"]
 
-    # Ignora objetos que não sejam CSV
     if not arquivo_bronze.endswith(".csv"):
         continue
 
-    print(f"\nArquivo encontrado: {arquivo_bronze}")
+    print(f"\nArquivo: {arquivo_bronze}")
 
-    # Lê o CSV da Bronze
     resposta_csv = s3.get_object(
         Bucket=BUCKET,
         Key=arquivo_bronze
@@ -49,7 +72,6 @@ for arquivo in resposta.get("Contents", []):
 
     conteudo = resposta_csv["Body"].read().decode("utf-8")
 
-    # Converte o CSV em uma lista de registros
     leitor = csv.DictReader(StringIO(conteudo))
     registros = list(leitor)
 
@@ -57,11 +79,14 @@ for arquivo in resposta.get("Contents", []):
         print("CSV vazio. Arquivo ignorado.")
         continue
 
-    # Aplica a transformação do uptime em todos os registros
     for linha in registros:
-        linha["uptime_horas_minutos"] = converter_uptime(
-            linha["uptime_segundos"]
-        )
+        for coluna in linha:
+            linha[coluna] = limpar_valor(linha[coluna])
+
+        linha["uptime_horas_minutos"] = converter_uptime(linha["uptime_segundos"])
+        linha["porcentagem_uso_cpu"] = validar_percentual(linha["porcentagem_uso_cpu"], "CPU")
+        linha["porcentagem_uso_ram"] = validar_percentual(linha["porcentagem_uso_ram"], "RAM")
+        linha["porcentagem_uso_swap"] = validar_percentual(linha["porcentagem_uso_swap"], "Swap")
 
     id_empresa = registros[0]["id_empresa"]
 
@@ -78,7 +103,7 @@ for arquivo in resposta.get("Contents", []):
     nome_arquivo = arquivo_bronze.split("/")[-1]
     arquivo_silver = f"silver/{id_empresa}/{nome_arquivo}"
 
-    print(f"Empresa identificada: {id_empresa}")
+    print(f"ID da Empresa: {id_empresa}")
     print(f"Destino na Silver: {arquivo_silver}")
 
     s3.put_object(
