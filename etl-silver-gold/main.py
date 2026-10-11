@@ -133,6 +133,7 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict):
         }
     
     )
+
     if "CPU" in value:
         df_new["porcentagem_uso_cpu"] = [df[date == df["timestamp"]]["porcentagem_uso_cpu"]]
         df_new["pico_porcentagem_uso_cpu"] = [df["porcentagem_uso_cpu"].max()]
@@ -149,17 +150,20 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict):
         df_new["porcentagem_uso_ram"] = [df[date == df["timestamp"]]["porcentagem_uso_ram"]]
         df_new["pico_consumo_memoria_ram_porcentagem"] = [df["porcentagem_uso_ram"].max()]
 
-    if "PACOTES_ENVIADOS" in value:
+    if "UPLOAD" in value:
         df_new["pacotes_enviados"] = [df[date == df["timestamp"]]["vel_upload"]]
 
-    if "PACOTES_RECEBIDOS" in value:
+    if "DOWNLOAD" in value:
         df_new["pacotes_recebido"] = [df[date == df["timestamp"]]["vel_download"]]
 
-    if "PERDA_PACOTES" in value:
+    if "LOSS" in value:
         df_new["perda_pacote"] = [df[date == df["timestamp"]]["perda_pacotes"]]
 
     if "SWAP" in value:
         df_new["porcentagem_uso_swap"] = [df[date == df["timestamp"]]["porcentagem_uso_swap"]]
+
+    if "UPTIME" in value:
+        df_new["uptime_segundos"] = [df[date == df["timestamp"]]["uptime_segundos"]]
 
     return df_new
 
@@ -183,12 +187,13 @@ def main():
         df = None
         df = convert_csv_to_df(value, s3, df)
         micro_analysis = micro_analysis_plc(df, value["medicoes"])
-        print(micro_analysis)
+        if "PROCESSOS" in value["medicoes"]:
+            pass
         
     
     
     # TODO: Analise kpi cliente
-        # TODO: uptime, health Score do clp, total de alertas, processo1, processo2, processo3, processo1 porcentagem, processo2 porcentagem, processo3 porcentagem
+        # TODO: health Score do clp, total de alertas, processo1, processo2, processo3, processo1 porcentagem, processo2 porcentagem, processo3 porcentagem
 
         # TODO: Ordenar processos com maior consumo e porcentagem da cpu
         # TODO: COmunicação: ping nos ultimos minutos
