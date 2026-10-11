@@ -6,11 +6,11 @@ import mysql.connector
 
 b_to_gb = 1073741824
 
-user = "CPL_YAGHO"
+# user = "CPL_YAGHO"
 # user = "CPL_MARIANNE"
 # user = "CPL_MARIANA"
 # user = "CPL_VINICIUS"
-# user = "CPL_RAFAEL"
+user = "CPL_RAFAEL"
 # user = "CPL_DANIEL"
 
 enviar_bucket = True
@@ -202,7 +202,7 @@ for p in psutil.process_iter(['cpu_percent']):
 
 contador = 0
 while(contador < 10):
-    time.sleep(10)
+    time.sleep(5)
 
     # Timestamp
     timestamp = datetime.now()
@@ -257,7 +257,7 @@ while(contador < 10):
 
 if enviar_bucket:
     timestamp = datetime.now();
-    path_name = f'01-bronze/{timestamp.year}-{timestamp.month}-{timestamp.day}_{timestamp.hour}-{timestamp.minute}_{id_empresa}-{id_clp}.csv'
+    path_name = f'gold/{timestamp.year}-{timestamp.month}-{timestamp.day}_{timestamp.hour}-{timestamp.minute}_{id_empresa}-{id_clp}.csv'
 
     upload_csv(CSV_PATH, AWS_BUCKET_NAME, path_name)
 
