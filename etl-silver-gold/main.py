@@ -167,6 +167,71 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict):
 
     return df_new
 
+def analysis_latest_process(df: pd.DataFrame):
+    date = df["timestamp"].max()
+
+    df_new = pd.DataFrame({
+        "id_clp":[df.iloc[0]["id_clp"]],
+        "modelo_clp": [df.iloc[0]["modelo_clp"]],
+        "id_empresa": [df.iloc[0]["id_empresa"]],
+        "timestamp": [date]
+    })
+
+    df_new["top1_processo"] = [df[date == df["timestamp"]]["top1_processo"]]
+    df_new["top1_cpu"] = [df[date == df["timestamp"]]["top1_cpu"]]
+    df_new["top1_ram"] = [df[date == df["timestamp"]]["top1_ram"]]
+    df_new["top2_processo"] = [df[date == df["timestamp"]]["top2_processo"]]
+    df_new["top2_cpu"] = [df[date == df["timestamp"]]["top2_cpu"]]
+    df_new["top2_ram"] = [df[date == df["timestamp"]]["top2_ram"]]
+    df_new["top3_processo"] = [df[date == df["timestamp"]]["top3_processo"]]
+    df_new["top3_cpu"] = [df[date == df["timestamp"]]["top3_cpu"]]
+    df_new["top3_ram"] = [df[date == df["timestamp"]]["top3_ram"]]
+
+    return df_new
+
+def ranking_process(df: pd.DataFrame):
+    processos = []
+
+    for i in range(1, 4):
+        df_processos = df[[
+                "timestamp",
+                f"top{i}_processo",
+                f"top{i}_cpu",
+                f"top{i}_ram"]].rename(columns={
+            f"top{i}_processo": "processo",
+            f"top{i}_cpu": "cpu",
+            f"top{i}_ram": "ram"
+        })
+
+        processos.append(df_processos)
+
+    df_new = pd.concat(processos, ignore_index=True)
+
+    ranking = (
+        df_new
+        .groupby("processo")
+        .agg(
+            aparicoes=("timestamp", "count"),
+            cpu_media=("cpu", "mean"),
+            cpu_maxima=("cpu", "max"),
+            ram_media=("ram", "mean"),
+            ram_maxima=("ram", "max")
+        )
+        .reset_index()
+        .sort_values("aparicoes", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    return ranking
+
+   
+def ping_performance(df: pd.DataFrame):
+    df_new = pd.DataFrame({
+        "timestamp": df["timestamp"],
+        "latencia_ms": df["latencia_ms"]
+    })
+    return df_new.sort_values("timestamp", ascending=False)
+
 def main():
     # Configuração do env
     config.configure_env()
@@ -188,16 +253,17 @@ def main():
         df = convert_csv_to_df(value, s3, df)
         micro_analysis = micro_analysis_plc(df, value["medicoes"])
         if "PROCESSOS" in value["medicoes"]:
-            pass
+            latest_process = analysis_latest_process(df)
+            ranking = ranking_process(df)
+        if "PING" in value["medicoes"]:
+            print(ping_performance(df))
+
+
         
     
     
     # TODO: Analise kpi cliente
-        # TODO: health Score do clp, total de alertas, processo1, processo2, processo3, processo1 porcentagem, processo2 porcentagem, processo3 porcentagem
-
-        # TODO: Ordenar processos com maior consumo e porcentagem da cpu
-        # TODO: COmunicação: ping nos ultimos minutos
-        # TODO: 
+        # TODO: health Score do clp, total de alertas
 
     # TODO: Analises de cada kpi fornecedor
         # TODO: Cliente com menos alerta
