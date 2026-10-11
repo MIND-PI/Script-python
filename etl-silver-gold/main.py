@@ -121,7 +121,25 @@ def convert_csv_to_df(value, s3: BaseClient, df):
         df = pd.concat([df, data], ignore_index=True)
     return df
 
-
+def micro_analysis_plc(df: pd.DataFrame):
+    date = df["timestamp"].max()
+    df_new = pd.DataFrame({
+        "id_clp":[df.iloc[0]["id_clp"]],
+        "modelo_clp": [df.iloc[0]["modelo_clp"]],
+        "id_empresa": [df.iloc[0]["id_empresa"]],
+        "timestamp": [date],
+        "porcentagem_uso_cpu": [df[date == df["timestamp"]]["porcentagem_uso_cpu"]],
+        "pico_porcentagem_uso_cpu": [df["porcentagem_uso_cpu"].max()],
+        "consumo_memoria_ram": [df[date == df["timestamp"]]["ram_usada_gb"]],
+        "porcentagem_uso_ram": [df[date == df["timestamp"]]["porcentagem_uso_ram"]],
+        "pico_consumo_memoria_ram": [df["ram_usada_gb"].max()],
+        "scan_time_atual": [df[date == df["timestamp"]]["scan_time_ms"]],
+        "scan_time_pico": [df["scan_time_ms"].max()],
+        "pacotes_enviados": [df[date == df["timestamp"]]["vel_upload"]],
+        "pacotes_recebido": [df[date == df["timestamp"]]["vel_download"]],
+        "perda_pacotes": [df[date == df["timestamp"]]["perda_pacotes"]],
+    })
+    return df_new
 
 def main():
     # Configuração do env
@@ -142,7 +160,12 @@ def main():
     for ch, value in json_clp.items():
         df = None
         df = convert_csv_to_df(value, s3, df)
-
+        micro_analysis = micro_analysis_plc(df)
+        print(micro_analysis)
+        print(value)
+        
+    
+    
     # TODO: Analise kpi cliente
         # TODO: Consumo cpu, memória ram, uptime, health Score do clp, pacotes recebidos e enviados, perdas de pacote, total de alertas, scan time max, scan time maximo, pico de cpu, modelo, processo1, processo2, processo3, processo1 porcentagem, processo2 porcentagem, processo3 porcentagem
 
