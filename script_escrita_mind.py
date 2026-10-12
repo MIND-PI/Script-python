@@ -6,11 +6,11 @@ import mysql.connector
 
 b_to_gb = 1073741824
 
-# user = "CPL_YAGHO"
+user = "CPL_YAGHO"
 # user = "CPL_MARIANNE"
 # user = "CPL_MARIANA"
 # user = "CPL_VINICIUS"
-user = "CPL_RAFAEL"
+# user = "CPL_RAFAEL"
 # user = "CPL_DANIEL"
 
 enviar_bucket = True
@@ -114,22 +114,40 @@ def medir_latencia(destino, porta=53, timeout_s=1):
     except Exception:
         return None
 
-
 def get_top_processos(n=3):
-    procs = []
+    n_cpus = psutil.cpu_count() or 1
+    ram_total = psutil.virtual_memory().total
+    agrupado = {}  # nome -> [cpu_total, bytes_ram_total]
+
     for p in psutil.process_iter(['pid', 'name', 'cpu_percent']):
         try:
-            if p.info['pid'] == 0:  # ignora o "System Idle Process" no Windows
+            if p.info['pid'] == 0:  # ignora o "System Idle Process"
                 continue
-            procs.append((p.info['name'], p.info['cpu_percent'] or 0))
+            nome = p.info['name']
+            cpu = (p.info['cpu_percent'] or 0) / n_cpus
+
+            try:
+                # USS = memória privada do processo (equivale ao Gerenciador de Tarefas)
+                mem = p.memory_full_info().uss
+            except (psutil.AccessDenied, OSError):
+                mem = p.memory_info().rss  # fallback p/ processos protegidos
+
+            if nome not in agrupado:
+                agrupado[nome] = [0, 0]
+            agrupado[nome][0] += cpu
+            agrupado[nome][1] += mem
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
 
-    procs.sort(key=lambda x: x[1], reverse=True)
-    nomes = [nome for nome, _ in procs[:n]]
-    while len(nomes) < n:  # garante sempre n itens para não quebrar o CSV
-        nomes.append(None)
-    return nomes
+    procs = [
+        (nome, round(cpu, 2), round(mem / ram_total * 100, 2))
+        for nome, (cpu, mem) in agrupado.items()
+    ]
+    procs.sort(key=lambda x: x[1], reverse=True)  # ordena por CPU
+    top = procs[:n]
+    while len(top) < n:
+        top.append((None, None, None))
+    return top
 
 
 def write_header():
@@ -146,14 +164,15 @@ def write_header():
             'ram_usada_gb',
             'porcentagem_uso_ram',
             'porcentagem_uso_swap',
+            'uptime_segundos',
             'scan_time_ms',
             'latencia_ms',
             'perda_pacotes',
             'vel_upload',
             'vel_download',
-            'top1_processo',
-            'top2_processo',
-            'top3_processo',
+            'top1_processo', 'top1_cpu', 'top1_ram',
+            'top2_processo', 'top2_cpu', 'top2_ram',
+            'top3_processo', 'top3_cpu', 'top3_ram',
         ])
 
 
@@ -171,21 +190,21 @@ def write_content():
             ram_usada_gb,
             ramPercent,
             swapPercent,
+            uptime_segundos,
             scan_time_ms,
             latencia_ms,
             perdaPacotes,
             velUpload,
             velDownload,
-            top_procs[0],
-            top_procs[1],
-            top_procs[2],
+            *top_procs[0],
+            *top_procs[1],
+            *top_procs[2],
         ])
 
 def upload_csv(file, bucket, path):
     try:
         s3 = session.client('s3')
         s3.upload_file(file, bucket, path)
-
         os.remove(file)
         print("Arquivo local 'csvDados.csv' deletado com sucesso.")
     except ClientError as e:
@@ -202,7 +221,7 @@ for p in psutil.process_iter(['cpu_percent']):
 
 contador = 0
 while(contador < 10):
-    time.sleep(5)
+    time.sleep(1)
 
     # Timestamp
     timestamp = datetime.now()
@@ -220,6 +239,9 @@ while(contador < 10):
     # Memoria Swap
     swap = psutil.swap_memory()
     swapPercent = swap.percent
+
+    # Uptime do sistema (segundos desde o boot)
+    uptime_segundos = int(time.time() - psutil.boot_time())
 
     # Fator CPU: de 1.0 (0% uso) até 8.0 (100% uso) - principal influência no scan time
     fator_cpu = 1 + (pct_cpu / 100) * 7
@@ -257,7 +279,7 @@ while(contador < 10):
 
 if enviar_bucket:
     timestamp = datetime.now();
-    path_name = f'gold/{timestamp.year}-{timestamp.month}-{timestamp.day}_{timestamp.hour}-{timestamp.minute}_{id_empresa}-{id_clp}.csv'
+    path_name = f'bronze/{timestamp.year}-{timestamp.month}-{timestamp.day}_{timestamp.hour}-{timestamp.minute}_{id_empresa}-{id_clp}.csv'
 
     upload_csv(CSV_PATH, AWS_BUCKET_NAME, path_name)
 
