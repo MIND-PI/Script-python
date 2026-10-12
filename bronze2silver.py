@@ -32,6 +32,56 @@ def validar_percentual(valor, coluna):
         print(f"Aviso: {coluna} contém valor inválido: {valor}")
         return valor
 
+def calcular_health_score(cpu, ram, swap, scan_time, latencia):
+    limites = {
+        "cpu": 80,
+        "ram": 80,
+        "swap": 20,
+        "scan_time": 100,
+        "latencia": 200
+    }
+
+    pesos = {
+        "cpu": 20,
+        "ram": 20,
+        "swap": 15,
+        "scan_time": 20,
+        "latencia": 15
+    }
+
+    valores = {
+        "cpu": cpu,
+        "ram": ram,
+        "swap": swap,
+        "scan_time": scan_time,
+        "latencia": latencia
+    }
+
+    notas = {}
+
+    for indicador, valor in valores.items():
+        try:
+            numero = float(valor)
+
+            if not math.isfinite(numero) or numero < 0:
+                return ""
+
+            nota = max(
+                0,
+                100 - (numero / limites[indicador] * 100)
+            )
+
+            notas[indicador] = nota
+
+        except (ValueError, TypeError):
+            return ""
+
+    score = sum(
+        notas[indicador] * pesos[indicador]
+        for indicador in pesos
+    ) / sum(pesos.values())
+
+    return round(score, 2)
 
 def converter_uptime(uptime_segundos):
     if uptime_segundos is None or uptime_segundos.strip() == "":
@@ -87,6 +137,15 @@ for arquivo in resposta.get("Contents", []):
         linha["porcentagem_uso_cpu"] = validar_percentual(linha["porcentagem_uso_cpu"], "CPU")
         linha["porcentagem_uso_ram"] = validar_percentual(linha["porcentagem_uso_ram"], "RAM")
         linha["porcentagem_uso_swap"] = validar_percentual(linha["porcentagem_uso_swap"], "Swap")
+
+        linha["health_score"] = calcular_health_score(
+            cpu=linha["porcentagem_uso_cpu"],
+            ram=linha["porcentagem_uso_ram"],
+            swap=linha["porcentagem_uso_swap"],
+            scan_time=linha["scan_time_ms"],
+            latencia=linha["latencia_ms"]
+        )
+
 
     id_empresa = registros[0]["id_empresa"]
 
