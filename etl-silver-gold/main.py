@@ -268,15 +268,17 @@ def main():
         df = None
         df = convert_csv_to_df(value, s3, df)
         micro_analysis = micro_analysis_plc(df, value["medicoes"])
-        upload_json(s3, micro_analysis, f"id-clp-{ch}/clp-micro")
+        id_empresa = get_id_company(value["csv"][0])
+        upload_json(s3, micro_analysis, f"id-empresa-{id_empresa}/id-clp-{ch}/clp-micro")
+        
         if "PROCESSOS" in value["medicoes"]:
             latest_process = analysis_latest_process(df)
-            upload_json(s3, latest_process, f"id-clp-{ch}/clp-ultimos-processos")
+            upload_json(s3, latest_process, f"id-empresa-{id_empresa}/id-clp-{ch}/clp-ultimos-processos")
             ranking = ranking_process(df)
-            upload_json(s3, ranking, f"id-clp-{ch}/clp-ranking-processos")
+            upload_json(s3, ranking, f"id-empresa-{id_empresa}/id-clp-{ch}/clp-ranking-processos")
         if "PING" in value["medicoes"]:
             ping = ping_performance(df)
-            upload_json(s3, ping, f"id-clp-{ch}/clp-ping")
+            upload_json(s3, ping, f"id-empresa-{id_empresa}/id-clp-{ch}/clp-ping")
 
 
         
