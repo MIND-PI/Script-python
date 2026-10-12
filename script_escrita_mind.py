@@ -279,7 +279,7 @@ while(contador < 10):
 
 if enviar_bucket:
     timestamp = datetime.now();
-    path_name = f'gold/{timestamp.year}-{timestamp.month}-{timestamp.day}_{timestamp.hour}-{timestamp.minute}_{id_empresa}-{id_clp}.csv'
+    path_name = f'bronze/{timestamp.year}-{timestamp.month}-{timestamp.day}_{timestamp.hour}-{timestamp.minute}_{id_empresa}-{id_clp}.csv'
 
     upload_csv(CSV_PATH, AWS_BUCKET_NAME, path_name)
 
