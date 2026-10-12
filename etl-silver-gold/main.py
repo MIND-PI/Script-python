@@ -232,6 +232,22 @@ def ping_performance(df: pd.DataFrame):
     })
     return df_new.sort_values("timestamp", ascending=False)
 
+def convert_json(df: pd.DataFrame):
+    return df.to_json(orient="records")
+
+def upload_json(s3, df, key):
+    json = convert_json(df)
+    now = datetime.now()
+    formatt = now.strftime("%Y-%M-%d_%H-%M")
+    s3.put_object(
+        Bucket=os.getenv("AWS_BUCKET_NAME"),
+        Key=f"gold/{key}/{formatt}.json",
+        Body=json.encode("utf-8"),
+        ContentType="application/json"
+    )
+    print(f"Envio para: {key} realizado com sucesso")
+    
+
 def main():
     # Configuração do env
     config.configure_env()
@@ -252,11 +268,15 @@ def main():
         df = None
         df = convert_csv_to_df(value, s3, df)
         micro_analysis = micro_analysis_plc(df, value["medicoes"])
+        upload_json(s3, micro_analysis, f"id-clp-{ch}/clp-micro")
         if "PROCESSOS" in value["medicoes"]:
             latest_process = analysis_latest_process(df)
+            upload_json(s3, latest_process, f"id-clp-{ch}/clp-ultimos-processos")
             ranking = ranking_process(df)
+            upload_json(s3, ranking, f"id-clp-{ch}/clp-ranking-processos")
         if "PING" in value["medicoes"]:
-            print(ping_performance(df))
+            ping = ping_performance(df)
+            upload_json(s3, ping, f"id-clp-{ch}/clp-ping")
 
 
         
@@ -269,7 +289,7 @@ def main():
         # TODO: Cliente com menos alerta
         # TODO: Cliente com mais alerta
         # TODO: Modelo com mais alerta
-        # TODO: MOdelo com menos alerta
+        # TODO: Modelo com menos alerta
         # TODO: Recurso mais saturado
 
 
