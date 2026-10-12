@@ -163,7 +163,10 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict):
         df_new["porcentagem_uso_swap"] = [df[date == df["timestamp"]]["porcentagem_uso_swap"]]
 
     if "UPTIME" in value:
-        df_new["uptime_segundos"] = [df[date == df["timestamp"]]["uptime_segundos"]]
+        df_new["uptime_horas_minutos"] = [df[date == df["timestamp"]]["uptime_horas_minutos"]]
+
+    if "HEALTH SCORE" in value:
+        df_new["health_score"] = [df[date == df["timestamp"]]["health_score"]]
 
     return df_new
 
