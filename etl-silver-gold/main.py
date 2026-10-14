@@ -102,7 +102,6 @@ def get_measurements(id):
 
     return dict(result)
 
-
 def get_csv(key, s3: BaseClient):
 
     return s3.get_object(
@@ -226,8 +225,7 @@ def ranking_process(df: pd.DataFrame):
     )
 
     return ranking
-
-   
+  
 def ping_performance(df: pd.DataFrame):
     df_new = pd.DataFrame({
         "timestamp": df["timestamp"],
@@ -250,6 +248,13 @@ def upload_json(s3, df, key):
     )
     print(f"Envio para: {key} realizado com sucesso")
     
+def scan_cpu_performance(df: pd.DataFrame):
+    df_new = pd.DataFrame({
+        "timestamp": df["timestamp"],
+        "scan_time_ms": df["scan_time_ms"],
+        "porcentagem_uso_cpu": df["porcentagem_uso_cpu"]
+    })
+    return df_new.sort_values("timestamp", ascending=False)
 
 def main():
     # Configuração do env
@@ -282,13 +287,12 @@ def main():
         if "PING" in value["medicoes"]:
             ping = ping_performance(df)
             upload_json(s3, ping, f"id-empresa-{id_empresa}/id-clp-{ch}/clp-ping")
-
+        
+        if "CPU" in value["medicoes"] and "SCAN" in value["medicoes"]:
+            scan_cpu = scan_cpu_performance(df)
+            upload_json(s3, scan_cpu, f"id-empresa-{id_empresa}/id-clp-{ch}/scan-cpu-performance")
 
         
-    
-    
-    # TODO: Analise kpi cliente
-        # TODO: health Score do clp, total de alertas
 
     # TODO: Analises de cada kpi fornecedor
         # TODO: Cliente com menos alerta
