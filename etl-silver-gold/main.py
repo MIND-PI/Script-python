@@ -8,6 +8,7 @@ from botocore.client import BaseClient
 import json
 from io import BytesIO
 import pandas as pd
+import numpy as np
 
 
 def silver_read(s3, prefix, start: datetime, end: datetime):
@@ -70,14 +71,14 @@ def get_id_company(key):
     return id_company
 
 def validate_json(json_clp: dict, id_company, id_clp, key):
-    if id_clp not in json_clp:
-        json_clp[id_clp] = {
+    if (id_company, id_clp) not in json_clp:
+        json_clp[(id_company, id_clp)] = {
             "medicoes": get_measurements(id_clp),
             "csv": [key],
             "company": id_company
         }
     else:
-        json_clp[id_clp]["csv"].append(key)
+        json_clp[id_company, id_clp]["csv"].append(key)
 
     return json_clp
         
@@ -234,7 +235,7 @@ def ping_performance(df: pd.DataFrame):
     return df_new.sort_values("timestamp", ascending=False)
 
 def convert_json(df: pd.DataFrame):
-    return df.to_json(orient="records")
+    return df.to_json(orient="records", date_format="iso")
 
 def upload_json(s3, df, key):
     json = convert_json(df)
@@ -256,6 +257,112 @@ def scan_cpu_performance(df: pd.DataFrame):
     })
     return df_new.sort_values("timestamp", ascending=False)
 
+def client_analysis(json_clp, s3):
+    for (id_company, id_clp), value in json_clp.items():
+        df = None
+        df = convert_csv_to_df(value, s3, df)
+        micro_analysis = micro_analysis_plc(df, value["medicoes"])
+        id_empresa = get_id_company(value["csv"][0])
+        upload_json(s3, micro_analysis, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-micro")
+        
+        if "PROCESSOS" in value["medicoes"]:
+            latest_process = analysis_latest_process(df)
+            upload_json(s3, latest_process, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-ultimos-processos")
+            ranking = ranking_process(df)
+            upload_json(s3, ranking, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-ranking-processos")
+        if "PING" in value["medicoes"]:
+            ping = ping_performance(df)
+            upload_json(s3, ping, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-ping")
+        
+        if "CPU" in value["medicoes"] and "SCAN" in value["medicoes"]:
+            scan_cpu = scan_cpu_performance(df)
+            upload_json(s3, scan_cpu, f"id-empresa-{id_empresa}/id-clp-{id_clp}/scan-cpu-performance")
+
+def model_analysis(df: pd.DataFrame):
+    df_analysis = df.groupby("modelo_clp").agg(
+        health_medio=("health_score", "mean")
+    ).reset_index()
+
+    condition = [df_analysis["health_medio"] >= 80, df_analysis["health_medio"] >= 50]
+    choice = ["Crítico", "Atenção"]
+    df_analysis["status"] = np.select(condition, choice, default="Estável")
+
+    df_analysis["health_medio"] = df_analysis["health_medio"].round(2)
+
+
+    return df_analysis
+
+def model_critical(df: pd.DataFrame):
+    df_analysis = (
+        df.groupby(["modelo_clp", "id_clp"])
+        .agg(
+            health_medio=("health_score", "mean")
+        )
+        .reset_index()
+    )
+
+    condition = [df_analysis["health_medio"] >= 80, df_analysis["health_medio"] >= 50]
+    choice = ["Crítico", "Atenção"]
+    df_analysis["status"] = np.select(condition, choice, default="Estável")
+
+    ranking_status = (
+        df_analysis["status"]
+        .value_counts()
+        .reset_index()
+    )
+
+    ranking_status.columns = ["status", "quantidade_clps"]
+
+    return ranking_status
+
+def model_health_score(df: pd.DataFrame):
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["timestamp"] = df["timestamp"].dt.floor("min")
+
+    df_analysis = (
+        df.groupby(["timestamp", "modelo_clp"])
+        .agg(
+            health_score_mean=("health_score", "mean")
+        )
+        .reset_index()
+        .sort_values("timestamp")
+    )
+
+    df_analysis["health_score_mean"] = df_analysis["health_score_mean"].round(2)
+
+    return df_analysis
+
+def provider_analysis(json_clp, s3):
+    empresa_processada = []
+
+    for (id_empresa, id_clp), value in json_clp.items():
+        empresa = value["company"]
+
+        if empresa in empresa_processada:
+            continue
+
+        empresa_processada.append(empresa)
+
+        df_empresa = None
+
+        for (id_empresa, id_clp), value_now in json_clp.items():
+            if empresa == value_now["company"]:
+                df_clp = convert_csv_to_df(value_now, s3, None)
+                if df_empresa is None:
+                    df_empresa = df_clp
+                else:
+                    df_empresa = pd.concat(
+                        [df_empresa, df_clp],
+                        ignore_index=True
+                    )
+
+        model = model_analysis(df_empresa)
+        model_score = model_health_score(df_empresa)
+        critical = model_critical(df_empresa)
+        upload_json(s3, model, f"id-empresa-{empresa}/modelo-resumo")
+        upload_json(s3, model_score, f"id-empresa-{empresa}/modelos-health-score-historico")
+        upload_json(s3, critical, f"id-empresa-{empresa}/modelos-health-score-status")
+        
 def main():
     # Configuração do env
     config.configure_env()
@@ -271,35 +378,9 @@ def main():
     # Validando se o json tem algo
     if not json_clp:
         return
-    
-    for ch, value in json_clp.items():
-        df = None
-        df = convert_csv_to_df(value, s3, df)
-        micro_analysis = micro_analysis_plc(df, value["medicoes"])
-        id_empresa = get_id_company(value["csv"][0])
-        upload_json(s3, micro_analysis, f"id-empresa-{id_empresa}/id-clp-{ch}/clp-micro")
-        
-        if "PROCESSOS" in value["medicoes"]:
-            latest_process = analysis_latest_process(df)
-            upload_json(s3, latest_process, f"id-empresa-{id_empresa}/id-clp-{ch}/clp-ultimos-processos")
-            ranking = ranking_process(df)
-            upload_json(s3, ranking, f"id-empresa-{id_empresa}/id-clp-{ch}/clp-ranking-processos")
-        if "PING" in value["medicoes"]:
-            ping = ping_performance(df)
-            upload_json(s3, ping, f"id-empresa-{id_empresa}/id-clp-{ch}/clp-ping")
-        
-        if "CPU" in value["medicoes"] and "SCAN" in value["medicoes"]:
-            scan_cpu = scan_cpu_performance(df)
-            upload_json(s3, scan_cpu, f"id-empresa-{id_empresa}/id-clp-{ch}/scan-cpu-performance")
 
-        
-
-    # TODO: Analises de cada kpi fornecedor
-        # TODO: Cliente com menos alerta
-        # TODO: Cliente com mais alerta
-        # TODO: Modelo com mais alerta
-        # TODO: Modelo com menos alerta
-        # TODO: Recurso mais saturado
+    client_analysis(json_clp, s3)
+    provider_analysis(json_clp, s3)
 
 
 if __name__ == "__main__":
