@@ -19,6 +19,21 @@ def limpar_valor(valor):
 
     return valor.strip()
 
+def formatar_decimal(valor):
+    if valor is None or str(valor).strip() == "":
+        return ""
+
+    try:
+        numero = float(valor)
+
+        if math.isfinite(numero):
+            return f"{numero:.2f}"
+
+        return str(valor)
+
+    except (ValueError, TypeError):
+        return str(valor)
+
 def validar_percentual(valor, coluna):
     if valor == "":
         return valor
@@ -145,6 +160,24 @@ for arquivo in resposta.get("Contents", []):
             scan_time=linha["scan_time_ms"],
             latencia=linha["latencia_ms"]
         )
+
+        colunas_decimais = [
+            "porcentagem_uso_cpu",
+            "porcentagem_uso_ram",
+            "porcentagem_uso_swap",
+            "scan_time_ms",
+            "latencia_ms",
+            "health_score",
+            "ram_total_gb",
+            "ram_disponivel_gb",
+            "ram_usada_gb",
+            "vel_upload",
+            "vel_download"
+        ]
+
+        for coluna in colunas_decimais:
+            if coluna in linha:
+                linha[coluna] = formatar_decimal(linha[coluna])
 
 
     id_empresa = registros[0]["id_empresa"]
