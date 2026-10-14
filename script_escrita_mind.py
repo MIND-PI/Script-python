@@ -21,7 +21,7 @@ load_dotenv(ENV_PATH)
 id_clp = os.getenv('ID_CLP')
 id_empresa = os.getenv('ID_EMPRESA')
 modelo_clp = os.getenv('MODELO_CLP_MONITORADO')  # aqui é o modeloId da tabela modelo
-nome_modelo_cpl = "modicon_m221" # editar aqui o nome
+nome_modelo_cpl = "" # editar aqui o nome
 id_fornecedor = os.getenv('ID_FORNECEDOR')
 localizacao = os.getenv('LOCALIZACAO_CLP', '')
 IP_DESTINO_LATENCIA = '8.8.8.8'
