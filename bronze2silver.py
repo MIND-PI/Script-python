@@ -144,14 +144,29 @@ for arquivo in resposta.get("Contents", []):
         print("CSV vazio. Arquivo ignorado.")
         continue
 
+    if "id_fornecedor" not in registros[0]:
+        print("Arquivo ignorado: coluna id_fornecedor não encontrada.")
+        continue
+
     for linha in registros:
         for coluna in linha:
             linha[coluna] = limpar_valor(linha[coluna])
 
-        linha["uptime_horas_minutos"] = converter_uptime(linha["uptime_segundos"])
-        linha["porcentagem_uso_cpu"] = validar_percentual(linha["porcentagem_uso_cpu"], "CPU")
-        linha["porcentagem_uso_ram"] = validar_percentual(linha["porcentagem_uso_ram"], "RAM")
-        linha["porcentagem_uso_swap"] = validar_percentual(linha["porcentagem_uso_swap"], "Swap")
+        linha["uptime_horas_minutos"] = converter_uptime(
+            linha["uptime_segundos"]
+        )
+
+        linha["porcentagem_uso_cpu"] = validar_percentual(
+            linha["porcentagem_uso_cpu"], "CPU"
+        )
+
+        linha["porcentagem_uso_ram"] = validar_percentual(
+            linha["porcentagem_uso_ram"], "RAM"
+        )
+
+        linha["porcentagem_uso_swap"] = validar_percentual(
+            linha["porcentagem_uso_swap"], "Swap"
+        )
 
         linha["health_score"] = calcular_health_score(
             cpu=linha["porcentagem_uso_cpu"],
@@ -179,14 +194,17 @@ for arquivo in resposta.get("Contents", []):
             if coluna in linha:
                 linha[coluna] = formatar_decimal(linha[coluna])
 
-
     id_empresa = registros[0]["id_empresa"]
 
     saida = StringIO()
 
     colunas = list(registros[0].keys())
 
-    escritor = csv.DictWriter(saida, fieldnames=colunas)
+    escritor = csv.DictWriter(
+        saida,
+        fieldnames=colunas
+    )
+
     escritor.writeheader()
     escritor.writerows(registros)
 
@@ -196,6 +214,7 @@ for arquivo in resposta.get("Contents", []):
     arquivo_silver = f"silver/{id_empresa}-{nome_arquivo}"
 
     print(f"ID da Empresa: {id_empresa}")
+    print(f"ID do Fornecedor: {registros[0]['id_fornecedor']}")
     print(f"Destino na Silver: {arquivo_silver}")
 
     s3.put_object(
