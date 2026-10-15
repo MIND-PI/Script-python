@@ -307,7 +307,7 @@ def model_critical(df: pd.DataFrame):
         .reset_index()
     )
 
-    condition = [df_analysis["health_medio"] >= 80, df_analysis["health_medio"] >= 50]
+    condition = [df_analysis["health_medio"] < 40, df_analysis["health_medio"] < 60]
     choice = ["Crítico", "Atenção"]
     df_analysis["status"] = np.select(condition, choice, default="Estável")
 
