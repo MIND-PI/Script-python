@@ -28,7 +28,7 @@ def silver_read(s3, prefix, start: datetime, end: datetime):
             id_company = get_id_company(key)
             id_clp = get_id_plc(key)
 
-            validate_json(json_clp, id_company, id_clp, key)
+            validate_json(json_clp, id_company, id_clp, key, s3)
 
     if not json_clp:
         print("Nenhum arquivo encontrado")
@@ -70,12 +70,18 @@ def get_id_company(key):
 
     return id_company
 
-def validate_json(json_clp: dict, id_company, id_clp, key):
+def validate_json(json_clp: dict, id_company, id_clp, key, s3):
+
     if (id_company, id_clp) not in json_clp:
+        response = get_csv(key, s3)
+        df = pd.read_csv(BytesIO(response["Body"].read()))
+
+        id_fornecedor = str(df["id_fornecedor"].iloc[0])
         json_clp[(id_company, id_clp)] = {
             "medicoes": get_measurements(id_clp),
             "csv": [key],
-            "company": id_company
+            "company": id_company,
+            "id_fornecedor": id_fornecedor
         }
     else:
         json_clp[id_company, id_clp]["csv"].append(key)
@@ -336,7 +342,7 @@ def provider_analysis(json_clp, s3):
     empresa_processada = []
 
     for (id_empresa, id_clp), value in json_clp.items():
-        empresa = value["company"]
+        empresa = value["id_fornecedor"]
 
         if empresa in empresa_processada:
             continue
@@ -346,7 +352,7 @@ def provider_analysis(json_clp, s3):
         df_empresa = None
 
         for (id_empresa, id_clp), value_now in json_clp.items():
-            if empresa == value_now["company"]:
+            if empresa == value_now["id_fornecedor"]:
                 df_clp = convert_csv_to_df(value_now, s3, None)
                 if df_empresa is None:
                     df_empresa = df_clp
