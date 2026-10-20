@@ -1,4 +1,4 @@
-import csv, psutil, time, random, json, os, sys, boto3, socket
+import csv, psutil, time, random, json, os, sys, boto3, socket, math
 from datetime import datetime
 from dotenv import load_dotenv
 from botocore.exceptions import ClientError
@@ -20,8 +20,8 @@ load_dotenv(ENV_PATH)
 
 id_clp = os.getenv('ID_CLP')
 id_empresa = os.getenv('ID_EMPRESA')
-modelo_clp = os.getenv('MODELO_PLC_MONITORADO')  # aqui é o modeloId da tabela modelo
-nome_modelo_cpl = "simatic_27" # editar aqui o nome
+modelo_clp = os.getenv('MODELO_CLP_MONITORADO')  # aqui é o modeloId da tabela modelo
+nome_modelo_cpl = "modicon_m221" # editar aqui o nome
 id_fornecedor = os.getenv('ID_FORNECEDOR')
 localizacao = os.getenv('LOCALIZACAO_CLP', '')
 IP_DESTINO_LATENCIA = '8.8.8.8'
@@ -241,25 +241,32 @@ while(contador < 10):
     # Uptime do sistema (segundos desde o boot)
     uptime_segundos = int(time.time() - psutil.boot_time())
 
-    # Fator CPU: de 1.0 (0% uso) até 8.0 (100% uso) - principal influência no scan time
-    fator_cpu = 1 + (pct_cpu / 100) * 7
+    # Fator CPU: crescimento exponencial
+    # 0% -> 1.0 | 50% -> ~4.80 | 95% -> ~19.09 | 100% -> 23.0
+    fator_cpu = 23 ** (pct_cpu / 100)
 
-    # Fator RAM: fraco até 85% de uso, depois passa a pesar mais, com teto de 4.0
-    # (RAM "sobrecarregada" começa a atrapalhar de verdade o scan time)
+    # Fator RAM: impacto moderado até 85%, depois aumenta mais rapidamente
     LIMIAR_RAM = 85
-    FATOR_RAM_NO_LIMIAR = 1 + (LIMIAR_RAM / 100) * 1.5  # ~2.275, ponto de partida acima do limiar
+    FATOR_RAM_NO_LIMIAR = 1 + (LIMIAR_RAM / 100) * 1.5
     FATOR_RAM_MAX = 4.0
 
     if ramPercent <= LIMIAR_RAM:
         fator_mem = 1 + (ramPercent / 100) * 1.5
     else:
-        extra_ram = (ramPercent - LIMIAR_RAM) / (100 - LIMIAR_RAM)  # 0 -> 1 conforme vai de 85% a 100%
-        fator_mem = FATOR_RAM_NO_LIMIAR + extra_ram * (FATOR_RAM_MAX - FATOR_RAM_NO_LIMIAR)
+        extra_ram = (ramPercent - LIMIAR_RAM) / (100 - LIMIAR_RAM)
 
-    base_scan_time = random.uniform(3, 6)
+        fator_mem = FATOR_RAM_NO_LIMIAR + extra_ram * (
+            FATOR_RAM_MAX - FATOR_RAM_NO_LIMIAR
+        )
+
+    # Tempo-base fixo, sem variação aleatória
+    base_scan_time = 4.5
+
+    # Cálculo do scan time
     scan_time_ms = base_scan_time * fator_cpu * fator_mem
-    scan_time_ms = min(scan_time_ms, 150)
 
+    # Limite máximo
+    scan_time_ms = min(scan_time_ms, 150)
     # Latencia (tempo de resposta, em ms) - igual em Windows e Linux
     latencia_ms = medir_latencia(IP_DESTINO_LATENCIA)
 
