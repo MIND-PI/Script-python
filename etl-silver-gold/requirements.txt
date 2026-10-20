@@ -1,3 +1,4 @@
 pandas
 python-dotenv
 boto3
+mysql-connector-python
