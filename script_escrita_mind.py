@@ -4,14 +4,8 @@ from dotenv import load_dotenv
 from botocore.exceptions import ClientError
 import mysql.connector
 
+#EDITAR LINHA 24
 b_to_gb = 1073741824
-
-user = "CPL_YAGHO"
-# user = "CPL_MARIANNE"
-# user = "CPL_MARIANA"
-# user = "CPL_VINICIUS"
-# user = "CPL_RAFAEL"
-# user = "CPL_DANIEL"
 
 enviar_bucket = True
 
@@ -27,6 +21,8 @@ load_dotenv(ENV_PATH)
 id_clp = os.getenv('ID_CLP')
 id_empresa = os.getenv('ID_EMPRESA')
 modelo_clp = os.getenv('MODELO_PLC_MONITORADO')  # aqui é o modeloId da tabela modelo
+nome_modelo_cpl = "simatic_27" # editar aqui o nome
+id_fornecedor = os.getenv('ID_FORNECEDOR')
 localizacao = os.getenv('LOCALIZACAO_CLP', '')
 IP_DESTINO_LATENCIA = '8.8.8.8'
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
@@ -153,7 +149,8 @@ def get_top_processos(n=3):
 def write_header():
     with open(CSV_PATH, 'w') as csvfile:
         csv.writer(csvfile, lineterminator='\n').writerow([
-            'user',
+            'nome_modelo_cpl',
+            'id_fornecedor',
             'modelo_clp',
             'id_clp',
             'id_empresa',
@@ -179,7 +176,8 @@ def write_header():
 def write_content():
     with open(CSV_PATH, 'a') as csvfile:
         csv.writer(csvfile, lineterminator='\n').writerow([
-            user,
+            nome_modelo_cpl,
+            id_fornecedor,
             modelo_clp,
             id_clp,
             id_empresa,
@@ -221,7 +219,7 @@ for p in psutil.process_iter(['cpu_percent']):
 
 contador = 0
 while(contador < 10):
-    time.sleep(10)
+    time.sleep(1)
 
     # Timestamp
     timestamp = datetime.now()
@@ -279,7 +277,7 @@ while(contador < 10):
 
 if enviar_bucket:
     timestamp = datetime.now();
-    path_name = f'gold/{timestamp.year}-{timestamp.month}-{timestamp.day}_{timestamp.hour}-{timestamp.minute}_{id_empresa}-{id_clp}.csv'
+    path_name = f'bronze/{timestamp.year}-{timestamp.month}-{timestamp.day}_{timestamp.hour}-{timestamp.minute}_{id_empresa}-{id_clp}.csv'
 
     upload_csv(CSV_PATH, AWS_BUCKET_NAME, path_name)
 
