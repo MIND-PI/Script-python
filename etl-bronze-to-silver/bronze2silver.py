@@ -211,7 +211,7 @@ for arquivo in resposta.get("Contents", []):
     conteudo_transformado = saida.getvalue()
 
     nome_arquivo = arquivo_bronze.split("/")[-1]
-    arquivo_silver = f"silver/{id_empresa}-{nome_arquivo}"
+    arquivo_silver = f"silver/{nome_arquivo}-{id_empresa}"
 
     print(f"ID da Empresa: {id_empresa}")
     print(f"ID do Fornecedor: {registros[0]['id_fornecedor']}")
