@@ -4,6 +4,7 @@ import csv
 from dotenv import load_dotenv
 from io import StringIO
 import math
+import mysql.connector
 
 load_dotenv()
 
@@ -47,15 +48,49 @@ def validar_percentual(valor, coluna):
         print(f"Aviso: {coluna} contém valor inválido: {valor}")
         return valor
 
-def calcular_health_score(cpu, ram, swap, scan_time, latencia):
-    limites = {
-        "cpu": 80,
-        "ram": 80,
-        "swap": 20,
-        "scan_time": 100,
-        "latencia": 200
-    }
+def buscar_limites(id_clp):
+    conexao = mysql.connector.connect(
+        host=os.getenv("DB_HOST"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        database=os.getenv("DB_NAME"),
+        port=int(os.getenv("DB_PORT", 3306))
+    )
 
+    cursor = conexao.cursor(dictionary=True)
+
+    consulta = """
+        SELECT tm.apelido, cm.parametro
+        FROM clp_medicao cm
+        JOIN tipo_medicao tm
+            ON cm.tipoMedicaoId = tm.idTipoMedicao
+        WHERE cm.clpId = %s AND cm.ativo = 1
+    """
+
+    cursor.execute(consulta, (id_clp,))
+    resultados = cursor.fetchall()
+
+    limites = {}
+
+    for linha in resultados:
+        if linha["apelido"] == "CPU":
+            limites["cpu"] = linha["parametro"]
+        elif linha["apelido"] == "RAM":
+            limites["ram"] = linha["parametro"]
+        elif linha["apelido"] == "SWAP":
+            limites["swap"] = linha["parametro"]
+        elif linha["apelido"] == "SCAN":
+            limites["scan_time"] = linha["parametro"]
+        elif linha["apelido"] == "PING":
+            limites["latencia"] = linha["parametro"]
+
+    cursor.close()
+    conexao.close()
+
+    return limites
+
+
+def calcular_health_score(cpu, ram, swap, scan_time, latencia, limites):
     pesos = {
         "cpu": 20,
         "ram": 20,
@@ -77,18 +112,16 @@ def calcular_health_score(cpu, ram, swap, scan_time, latencia):
     for indicador, valor in valores.items():
         try:
             numero = float(valor)
+            limite = float(limites[indicador])
 
-            if not math.isfinite(numero) or numero < 0:
+            if (not math.isfinite(numero) or numero < 0
+                    or not math.isfinite(limite) or limite <= 0):
                 return ""
 
-            nota = max(
-                0,
-                100 - (numero / limites[indicador] * 100)
-            )
-
+            nota = max(0, 100 - (numero / limite * 100))
             notas[indicador] = nota
 
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, KeyError):
             return ""
 
     score = sum(
@@ -97,6 +130,7 @@ def calcular_health_score(cpu, ram, swap, scan_time, latencia):
     ) / sum(pesos.values())
 
     return round(score, 2)
+
 
 def converter_uptime(uptime_segundos):
     if uptime_segundos is None or uptime_segundos.strip() == "":
@@ -168,12 +202,15 @@ for arquivo in resposta.get("Contents", []):
             linha["porcentagem_uso_swap"], "Swap"
         )
 
+        limites = buscar_limites(linha["id_clp"])
+
         linha["health_score"] = calcular_health_score(
             cpu=linha["porcentagem_uso_cpu"],
             ram=linha["porcentagem_uso_ram"],
             swap=linha["porcentagem_uso_swap"],
             scan_time=linha["scan_time_ms"],
-            latencia=linha["latencia_ms"]
+            latencia=linha["latencia_ms"],
+            limites=limites
         )
 
         colunas_decimais = [
@@ -211,7 +248,7 @@ for arquivo in resposta.get("Contents", []):
     conteudo_transformado = saida.getvalue()
 
     nome_arquivo = arquivo_bronze.split("/")[-1]
-    arquivo_silver = f"silver/{nome_arquivo}-{id_empresa}"
+    arquivo_silver = f"silver/{nome_arquivo}"
 
     print(f"ID da Empresa: {id_empresa}")
     print(f"ID do Fornecedor: {registros[0]['id_fornecedor']}")
