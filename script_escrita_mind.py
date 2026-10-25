@@ -1,10 +1,10 @@
-import csv, psutil, time, random, json, os, sys, boto3, socket, math
+import csv, psutil, time, random, json, os, sys, boto3, socket, math, uuid
 from datetime import datetime
 from dotenv import load_dotenv
 from botocore.exceptions import ClientError
 import mysql.connector
 
-#EDITAR LINHA 24
+#EDITAR A LINHA nome_modelo_cpl (logo abaixo de modelo_clp)
 b_to_gb = 1073741824
 
 enviar_bucket = True
@@ -46,14 +46,14 @@ session = boto3.Session(
 )
 
 if not id_empresa or not modelo_clp:
-    print("O arquivo .env precisa conter 'ID_EMPRESA' e 'MODELO_PLC_MONITORADO'. Encerrando o script.")
+    print("O arquivo .env precisa conter 'ID_EMPRESA' e 'MODELO_CLP_MONITORADO'. Encerrando o script.")
     sys.exit(1)
 
 try:
     id_empresa = int(id_empresa)
     modelo_clp = int(modelo_clp)
 except ValueError:
-    print("'ID_EMPRESA' e 'MODELO_PLC_MONITORADO' precisam ser números inteiros (empresaId e modeloId). Encerrando o script.")
+    print("'ID_EMPRESA' e 'MODELO_CLP_MONITORADO' precisam ser números inteiros (empresaId e modeloId). Encerrando o script.")
     sys.exit(1)
 
 
@@ -64,30 +64,39 @@ def salvar_id_clp_no_env(novo_id):
         f.write(f"\nID_CLP={novo_id}\n")
 
 
+def obter_mac_address():
+    #uuid.getnode() devolve o MAC da máquina como um inteiro de 48 bits.
+    #Formatamos em 12 dígitos hexadecimais maiúsculos (zeros à esquerda)
+    #e separamos de 2 em 2 com ':' -> AA:BB:CC:DD:EE:FF (17 caracteres)
+    mac = f"{uuid.getnode():012X}"
+    return ':'.join(mac[i:i + 2] for i in range(0, 12, 2))
+
+
 def obter_id_clp():
     #Se já existe ID_CLP no .env, usa ele, senao, insere um novo
     # registro na tabela clp do banco e retorna o idClp gerado.
     if id_clp:
-        return id_clp
+        return int(id_clp)
 
     if not all([DB_CONFIG['host'], DB_CONFIG['user'], DB_CONFIG['password'], DB_CONFIG['database']]):
         print("ID_CLP não está no .env e faltam dados de conexão com o banco (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME). Encerrando o script.")
         sys.exit(1)
 
     agora = datetime.now()
+    mac_address = obter_mac_address()
     conexao = mysql.connector.connect(**DB_CONFIG)
     try:
         cursor = conexao.cursor()
         cursor.execute(
-            """INSERT INTO clp (empresaId, data_criacao, data_atualizacao, status, localizacao, modeloId)
-               VALUES (%s, %s, %s, %s, %s, %s)""",
-            (id_empresa, agora, agora, 1, localizacao, modelo_clp),
+            """INSERT INTO clp (mac_address, empresaId, data_criacao, data_atualizacao, status, localizacao, modeloId)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (mac_address, id_empresa, agora, agora, 1, localizacao, modelo_clp),
         )
         conexao.commit()
         novo_id = cursor.lastrowid
         salvar_id_clp_no_env(novo_id)
-        print(f"Novo CLP cadastrado no banco com idClp {novo_id}. ID_CLP={novo_id} foi salvo no .env automaticamente.")
-        return str(novo_id)
+        print(f"Novo CLP cadastrado no banco com idClp {novo_id} (MAC {mac_address}). ID_CLP={novo_id} foi salvo no .env automaticamente.")
+        return novo_id
     finally:
         conexao.close()
 
@@ -218,8 +227,8 @@ for p in psutil.process_iter(['cpu_percent']):
     pass
 
 contador = 0
-while(contador < 10):
-    time.sleep(1)
+while(contador < 100):
+    time.sleep(10)
 
     # Timestamp
     timestamp = datetime.now()
@@ -271,19 +280,20 @@ while(contador < 10):
     latencia_ms = medir_latencia(IP_DESTINO_LATENCIA)
 
     # Rede
-    pacNaoRecebido = psutil.net_io_counters().errin
-    pacNaoEnviado = psutil.net_io_counters().errout
+    net = psutil.net_io_counters()
+    pacNaoRecebido = net.errin
+    pacNaoEnviado = net.errout
     perdaPacotes = pacNaoEnviado + pacNaoRecebido
 
-    velUpload = psutil.net_io_counters().bytes_sent / b_to_gb
-    velDownload = psutil.net_io_counters().bytes_recv / b_to_gb
+    velUpload = net.bytes_sent / b_to_gb
+    velDownload = net.bytes_recv / b_to_gb
 
     contador += 1
     top_procs = get_top_processos(3)
     write_content()
 
 if enviar_bucket:
-    timestamp = datetime.now();
+    timestamp = datetime.now()
     path_name = f'bronze/{timestamp.year}-{timestamp.month}-{timestamp.day}_{timestamp.hour}-{timestamp.minute}_{id_empresa}-{id_clp}.csv'
 
     upload_csv(CSV_PATH, AWS_BUCKET_NAME, path_name)
@@ -291,25 +301,29 @@ if enviar_bucket:
 
 # O SCRIPT ESPERA UM ARQUIVO .env COM:
 # ID_EMPRESA=empresaId (número inteiro, FK pra tabela empresa)
-# MODELO_PLC_MONITORADO=modeloId (número inteiro, FK pra tabela modelo)
+# MODELO_CLP_MONITORADO=modeloId (número inteiro, FK pra tabela modelo)
+# ID_FORNECEDOR=id da empresa fornecedora do modelo
 # LOCALIZACAO_CLP=localização do CLP (opcional)
-# ID_CLP=idClp (opcional - se não existir, o script cria o registro na tabela 'clp' e grava o idClp gerado aqui no .env automaticamente)
+# ID_CLP=idClp (opcional - se não existir, o script cria o registro na tabela 'clp'
+#   com o MAC address da máquina e grava o idClp gerado aqui no .env automaticamente)
 # DB_HOST=host do MySQL
 # DB_PORT=porta do MySQL (opcional, padrão 3306)
 # DB_USER=usuário do MySQL
 # DB_PASSWORD=senha do MySQL
 # DB_NAME=nome do banco
+# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_BUCKET_NAME
 #
 # Usa a tabela 'clp'
 # CREATE TABLE clp(
-#     idClp INT AUTO_INCREMENT,
+#     idClp INT AUTO_INCREMENT PRIMARY KEY,
+#     nome VARCHAR(100),
+#     mac_address VARCHAR(17) UNIQUE,
 #     empresaId INT,
-#     data_criacao DATETIME,
-#     data_atualizacao DATETIME,
+#     data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+#     data_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 #     status TINYINT,
 #     localizacao VARCHAR(255),
 #     modeloId INT,
-#     PRIMARY KEY (idClp, empresaId),
 #     CONSTRAINT fk_clp_empresa FOREIGN KEY (empresaId) REFERENCES empresa(idEmpresa),
 #     CONSTRAINT fk_clp_modelo FOREIGN KEY (modeloId) REFERENCES modelo(idmodelo)
 # );
