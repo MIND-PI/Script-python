@@ -12,6 +12,9 @@ import numpy as np
 
 
 def silver_read(s3, prefix, start: datetime, end: datetime):
+    print(f"[{datetime.now()}] Iniciando leitura da camada Silver...")
+    print(f"[{datetime.now()}] Período de filtro Início: {start} | Fim: {end}")
+
     response = s3.list_objects_v2(
         Bucket=os.getenv("AWS_BUCKET_NAME"),
         Prefix=prefix
@@ -31,9 +34,10 @@ def silver_read(s3, prefix, start: datetime, end: datetime):
             validate_json(json_clp, id_company, id_clp, key, s3)
 
     if not json_clp:
-        print("Nenhum arquivo encontrado")
+        print("Nenhum válido arquivo encontrado")
         return None
 
+    print(f"[{datetime.now()}] Mapeamento concluído. Total de CLPs únicos encontrados: {len(json_clp)}")
     return json_clp
 
 def validation_filter():
@@ -253,7 +257,7 @@ def upload_json(s3, df, key):
         Body=json.encode("utf-8"),
         ContentType="application/json"
     )
-    print(f"Envio para: {key} realizado com sucesso")
+    print(f"[{datetime.now()}] Upload realizado com sucesso para: gold/{key}/{formatt}.json")
     
 def scan_cpu_performance(df: pd.DataFrame):
     df_new = pd.DataFrame({
@@ -264,6 +268,7 @@ def scan_cpu_performance(df: pd.DataFrame):
     return df_new.sort_values("timestamp", ascending=False)
 
 def client_analysis(json_clp, s3):
+    print(f"\n[{datetime.now()}] [Análise Micro] Iniciando processamento por cliente/CLP...")
     for (id_company, id_clp), value in json_clp.items():
         df = None
         df = convert_csv_to_df(value, s3, df)
@@ -283,6 +288,8 @@ def client_analysis(json_clp, s3):
         if "CPU" in value["medicoes"] and "SCAN" in value["medicoes"]:
             scan_cpu = scan_cpu_performance(df)
             upload_json(s3, scan_cpu, f"id-empresa-{id_empresa}/id-clp-{id_clp}/scan-cpu-performance")
+
+    print(f"[{datetime.now()}] [Análise Micro] Concluída para todos os CLPs.")
 
 def model_analysis(df: pd.DataFrame):
     df_analysis = df.groupby("modelo_clp").agg(
@@ -339,6 +346,7 @@ def model_health_score(df: pd.DataFrame):
     return df_analysis
 
 def provider_analysis(json_clp, s3):
+    print(f"\n[{datetime.now()}] [Análise Macro] Iniciando processamento por fornecedor...")
     empresa_processada = []
 
     for (id_empresa, id_clp), value in json_clp.items():
@@ -348,6 +356,7 @@ def provider_analysis(json_clp, s3):
             continue
 
         empresa_processada.append(empresa)
+        print(f"[{datetime.now()}] Consolidando dados para o Fornecedor ID: {empresa}")
 
         df_empresa = None
 
@@ -368,6 +377,8 @@ def provider_analysis(json_clp, s3):
         upload_json(s3, model, f"id-empresa-{empresa}/modelo-resumo")
         upload_json(s3, model_score, f"id-empresa-{empresa}/modelos-health-score-historico")
         upload_json(s3, critical, f"id-empresa-{empresa}/modelos-health-score-status")
+
+    print(f"[{datetime.now()}] [Análise Macro] Concluída para todos os fornecedores.")
         
 def main():
     # Configuração do env
@@ -387,6 +398,8 @@ def main():
 
     client_analysis(json_clp, s3)
     provider_analysis(json_clp, s3)
+
+    print(f"[{datetime.now()}] PIPELINE GOLD FINALIZADO COM SUCESSO")
 
 
 if __name__ == "__main__":
