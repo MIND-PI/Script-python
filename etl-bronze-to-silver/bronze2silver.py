@@ -64,7 +64,7 @@ def buscar_limites(id_clp):
         FROM clp_medicao cm
         JOIN tipo_medicao tm
             ON cm.tipoMedicaoId = tm.idTipoMedicao
-        WHERE cm.clpId = %s AND cm.ativo = 1
+        WHERE cm.clpId = %s AND cm.status = 1
     """
 
     cursor.execute(consulta, (id_clp,))
