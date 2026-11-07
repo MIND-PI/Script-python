@@ -131,6 +131,7 @@ def convert_csv_to_df(value, s3: BaseClient, df):
         df = pd.concat([df, data], ignore_index=True)
     return df
 
+# TODO: CLP atenção risco ou saudavel
 def micro_analysis_plc(df: pd.DataFrame, value: dict):
     date = df["timestamp"].max()
 
@@ -147,18 +148,22 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict):
     if "CPU" in value:
         df_new["porcentagem_uso_cpu"] = [df[date == df["timestamp"]]["porcentagem_uso_cpu"]]
         df_new["pico_porcentagem_uso_cpu"] = [df["porcentagem_uso_cpu"].max()]
+        df_new["minimo_porcentagem_uso_cpu"] = [df["porcentagem_uso_cpu"].min()]
     
     if "SCAN" in value:
         df_new["scan_time_atual"] = [df[date == df["timestamp"]]["scan_time_ms"]],
         df_new["scan_time_pico"] = [df["scan_time_ms"].max()]
+        df_new["scan_time_minimo"] = [df["scan_time_ms"].min()]
 
     if "RAM" in value and value.get("RAM", "") == "GB":
         df_new["consumo_memoria_ram"] = [df[date == df["timestamp"]]["ram_usada_gb"]],
         df_new["pico_consumo_memoria_ram_gb"] = [df["ram_usada_gb"].max()]
+        df_new["minimo_consumo_memoria_ram_gb"] = [df["ram_usada_gb"].min()]
 
     if "RAM" in value and value.get("RAM", "") == "%":
         df_new["porcentagem_uso_ram"] = [df[date == df["timestamp"]]["porcentagem_uso_ram"]]
         df_new["pico_consumo_memoria_ram_porcentagem"] = [df["porcentagem_uso_ram"].max()]
+        df_new["minimo_consumo_memoria_ram_porcentagem"] = [df["porcentagem_uso_ram"].min()]
 
     if "UPLOAD" in value:
         df_new["pacotes_enviados"] = [df[date == df["timestamp"]]["vel_upload"]]
@@ -258,7 +263,8 @@ def upload_json(s3, df, key):
         ContentType="application/json"
     )
     print(f"[{datetime.now()}] Upload realizado com sucesso para: gold/{key}/{formatt}.json")
-    
+
+# TODO: Adicionar RAM performance e mudar lógica da função para receber conforme os valores do banco
 def scan_cpu_performance(df: pd.DataFrame):
     df_new = pd.DataFrame({
         "timestamp": df["timestamp"],
@@ -266,6 +272,8 @@ def scan_cpu_performance(df: pd.DataFrame):
         "porcentagem_uso_cpu": df["porcentagem_uso_cpu"]
     })
     return df_new.sort_values("timestamp", ascending=False)
+
+# TODO: Realizar analise preditiva com regressão linear
 
 def client_analysis(json_clp, s3):
     print(f"\n[{datetime.now()}] [Análise Micro] Iniciando processamento por cliente/CLP...")
