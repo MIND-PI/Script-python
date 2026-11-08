@@ -131,7 +131,6 @@ def convert_csv_to_df(value, s3: BaseClient, df):
         df = pd.concat([df, data], ignore_index=True)
     return df
 
-# TODO: CLP atenção risco ou saudavel
 def micro_analysis_plc(df: pd.DataFrame, value: dict):
     date = df["timestamp"].max()
 
@@ -151,7 +150,7 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict):
         df_new["minimo_porcentagem_uso_cpu"] = [df["porcentagem_uso_cpu"].min()]
     
     if "SCAN" in value:
-        df_new["scan_time_atual"] = [df[date == df["timestamp"]]["scan_time_ms"]],
+        df_new["scan_time_atual"] = [df[date == df["timestamp"]]["scan_time_ms"]]
         df_new["scan_time_pico"] = [df["scan_time_ms"].max()]
         df_new["scan_time_minimo"] = [df["scan_time_ms"].min()]
 
@@ -182,6 +181,9 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict):
 
     if "HEALTH SCORE" in value:
         df_new["health_score"] = [df[date == df["timestamp"]]["health_score"]]
+        condition = [df["health_score"] < 40, df["health_score"] < 60]
+        choice = ["Crítico", "Atenção"]
+        df_new["health_score_status"] = np.select(condition, choice, default="Estável")
 
     return df_new
 
@@ -265,12 +267,27 @@ def upload_json(s3, df, key):
     print(f"[{datetime.now()}] Upload realizado com sucesso para: gold/{key}/{formatt}.json")
 
 # TODO: Adicionar RAM performance e mudar lógica da função para receber conforme os valores do banco
-def scan_cpu_performance(df: pd.DataFrame):
+def scan_cpu_performance(df: pd.DataFrame, medicoes):
     df_new = pd.DataFrame({
-        "timestamp": df["timestamp"],
-        "scan_time_ms": df["scan_time_ms"],
-        "porcentagem_uso_cpu": df["porcentagem_uso_cpu"]
+        "id_clp": df["id_clp"],
+        "modelo_clp": df["modelo_clp"],
+        "id_empresa": df["id_empresa"],
+        "timestamp": df["timestamp"]
     })
+
+    if "CPU" in medicoes:
+        df_new["porcentagem_uso_cpu"] = df["porcentagem_uso_cpu"]
+
+
+    if "SCAN" in medicoes:
+        df_new["scan_time_ms"] = df["scan_time_ms"]
+
+    if "RAM" in medicoes and medicoes.get("RAM", "") == "GB":
+        df_new["consumo_memoria_ram"] = df["ram_usada_gb"]
+
+    if "RAM" in medicoes and medicoes.get("RAM", "") == "%":
+        df_new["porcentagem_uso_ram"] = df["porcentagem_uso_ram"]
+
     return df_new.sort_values("timestamp", ascending=False)
 
 # TODO: Realizar analise preditiva com regressão linear
@@ -292,9 +309,10 @@ def client_analysis(json_clp, s3):
         if "PING" in value["medicoes"]:
             ping = ping_performance(df)
             upload_json(s3, ping, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-ping")
-        
-        if "CPU" in value["medicoes"] and "SCAN" in value["medicoes"]:
-            scan_cpu = scan_cpu_performance(df)
+
+        # TODO: Fazer validação de medições 
+        if "CPU" in value["medicoes"] or "SCAN" in value["medicoes"] or "RAM" in value["medicoes"]:
+            scan_cpu = scan_cpu_performance(df, value["medicoes"])
             upload_json(s3, scan_cpu, f"id-empresa-{id_empresa}/id-clp-{id_clp}/scan-cpu-performance")
 
     print(f"[{datetime.now()}] [Análise Micro] Concluída para todos os CLPs.")
