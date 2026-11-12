@@ -9,6 +9,11 @@ import json
 from io import BytesIO
 import pandas as pd
 import numpy as np
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
+from botocore.exceptions import ClientError
+import io
 
 
 def silver_read(s3, prefix, start: datetime, end: datetime):
@@ -40,6 +45,7 @@ def silver_read(s3, prefix, start: datetime, end: datetime):
     print(f"[{datetime.now()}] Mapeamento concluído. Total de CLPs únicos encontrados: {len(json_clp)}")
     return json_clp
 
+# TODO: Refazer filtro e validar valores do filtro
 def validation_filter():
     now = datetime.now(timezone.utc)
     if now.day == 28:
@@ -145,45 +151,54 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict):
     )
 
     if "CPU" in value:
-        df_new["porcentagem_uso_cpu"] = [df[date == df["timestamp"]]["porcentagem_uso_cpu"]]
+        df_new["porcentagem_uso_cpu"] = df.loc[df["timestamp"] == date, "porcentagem_uso_cpu"].iloc[-1]
         df_new["pico_porcentagem_uso_cpu"] = [df["porcentagem_uso_cpu"].max()]
         df_new["minimo_porcentagem_uso_cpu"] = [df["porcentagem_uso_cpu"].min()]
     
     if "SCAN" in value:
-        df_new["scan_time_atual"] = [df[date == df["timestamp"]]["scan_time_ms"]]
+        df_new["scan_time_atual"] = df.loc[df["timestamp"] == date, "scan_time_ms"].iloc[-1]
         df_new["scan_time_pico"] = [df["scan_time_ms"].max()]
         df_new["scan_time_minimo"] = [df["scan_time_ms"].min()]
 
     if "RAM" in value and value.get("RAM", "") == "GB":
-        df_new["consumo_memoria_ram"] = [df[date == df["timestamp"]]["ram_usada_gb"]],
+        df_new["consumo_memoria_ram"] = df.loc[df["timestamp"] == date, "ram_usada_gb"].iloc[-1]
         df_new["pico_consumo_memoria_ram_gb"] = [df["ram_usada_gb"].max()]
         df_new["minimo_consumo_memoria_ram_gb"] = [df["ram_usada_gb"].min()]
 
     if "RAM" in value and value.get("RAM", "") == "%":
-        df_new["porcentagem_uso_ram"] = [df[date == df["timestamp"]]["porcentagem_uso_ram"]]
+        df_new["porcentagem_uso_ram"] = df.loc[df["timestamp"] == date, "porcentagem_uso_ram"].iloc[-1]
         df_new["pico_consumo_memoria_ram_porcentagem"] = [df["porcentagem_uso_ram"].max()]
         df_new["minimo_consumo_memoria_ram_porcentagem"] = [df["porcentagem_uso_ram"].min()]
 
     if "UPLOAD" in value:
-        df_new["pacotes_enviados"] = [df[date == df["timestamp"]]["vel_upload"]]
+        df_new["pacotes_enviados"] = df.loc[df["timestamp"] == date, "vel_upload"].iloc[-1]
 
     if "DOWNLOAD" in value:
-        df_new["pacotes_recebido"] = [df[date == df["timestamp"]]["vel_download"]]
+        df_new["pacotes_recebido"] = df.loc[df["timestamp"] == date, "vel_download"].iloc[-1]
 
     if "LOSS" in value:
-        df_new["perda_pacote"] = [df[date == df["timestamp"]]["perda_pacotes"]]
+        df_new["perda_pacote"] = df.loc[df["timestamp"] == date, "perda_pacotes"].iloc[-1]
 
     if "SWAP" in value:
-        df_new["porcentagem_uso_swap"] = [df[date == df["timestamp"]]["porcentagem_uso_swap"]]
+        df_new["porcentagem_uso_swap"] = df.loc[df["timestamp"] == date, "porcentagem_uso_swap"].iloc[-1]
 
     if "UPTIME" in value:
-        df_new["uptime_horas_minutos"] = [df[date == df["timestamp"]]["uptime_horas_minutos"]]
+        df_new["uptime_horas_minutos"] = df.loc[df["timestamp"] == date, "uptime_horas_minutos"].iloc[-1]
 
-    if "HEALTH SCORE" in value:
-        df_new["health_score"] = [df[date == df["timestamp"]]["health_score"]]
-        condition = [df["health_score"] < 40, df["health_score"] < 60]
+    if "HEALTH" in value:
+        health_score = df.loc[df["timestamp"] == date, "health_score"].iloc[-1]
+
+        df_new["health_score"] = [health_score]
+
+        condition = [health_score < 40,health_score < 60]
+
         choice = ["Crítico", "Atenção"]
-        df_new["health_score_status"] = np.select(condition, choice, default="Estável")
+
+        df_new["health_score_status"] = np.select(
+            condition,
+            choice,
+            default="Estável"
+        )
 
     return df_new
 
@@ -256,28 +271,21 @@ def convert_json(df: pd.DataFrame):
 
 def upload_json(s3, df, key):
     json = convert_json(df)
-    now = datetime.now()
-    formatt = now.strftime("%Y-%M-%d_%H-%M")
     s3.put_object(
         Bucket=os.getenv("AWS_BUCKET_NAME"),
-        Key=f"gold/{key}/{formatt}.json",
+        Key=f"gold/{key}.json",
         Body=json.encode("utf-8"),
         ContentType="application/json"
     )
-    print(f"[{datetime.now()}] Upload realizado com sucesso para: gold/{key}/{formatt}.json")
+    print(f"[{datetime.now()}] Upload realizado com sucesso para: gold/{key}.json")
 
-# TODO: Adicionar RAM performance e mudar lógica da função para receber conforme os valores do banco
-def scan_cpu_performance(df: pd.DataFrame, medicoes):
+def scan_cpu_performance(df: pd.DataFrame, medicoes: dict):
     df_new = pd.DataFrame({
-        "id_clp": df["id_clp"],
-        "modelo_clp": df["modelo_clp"],
-        "id_empresa": df["id_empresa"],
         "timestamp": df["timestamp"]
     })
 
     if "CPU" in medicoes:
         df_new["porcentagem_uso_cpu"] = df["porcentagem_uso_cpu"]
-
 
     if "SCAN" in medicoes:
         df_new["scan_time_ms"] = df["scan_time_ms"]
@@ -290,30 +298,153 @@ def scan_cpu_performance(df: pd.DataFrame, medicoes):
 
     return df_new.sort_values("timestamp", ascending=False)
 
-# TODO: Realizar analise preditiva com regressão linear
+def history_performance_transform(new_df: pd.DataFrame, s3, key):
+    try:
+        response = s3.get_object(
+            Bucket=os.getenv("AWS_BUCKET_NAME"),
+            Key=key
+        )
+        old_df = pd.read_json(io.BytesIO(response["Body"].read()))
+
+    except ClientError as error:
+        if error.response["Error"]["Code"] == "NoSuchKey":
+            old_df = pd.DataFrame(columns=new_df.columns)
+        else:
+            raise
+
+
+    att_df = pd.concat(
+        [old_df, new_df],
+        ignore_index=True
+    )
+
+    att_df = att_df.tail(5000)
+
+    return att_df
+    
+def performance_prediction(df_performance: pd.DataFrame, medicoes: dict):
+    df = df_performance.copy().reset_index()
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+    start = df["timestamp"].min()
+
+    df["timestamp"] = (
+        df["timestamp"] - start
+    ).dt.total_seconds() / 60
+
+    X = df[["timestamp"]]
+    y = df["porcentagem_uso_cpu"]
+
+    last_min = df["timestamp"].max()
+
+    future_min = np.arange(
+        last_min + 1,
+        last_min + 61
+    ).reshape(-1, 1)
+
+    future_timestamp = start + pd.to_timedelta(future_min.flatten(), unit="m")
+
+
+    df_new = pd.DataFrame({
+        "timestamp": future_timestamp
+    }).set_index("timestamp")
+
+    metricas = {
+        "CPU": "porcentagem_uso_cpu",
+        "SCAN": "scan_time_ms",
+        "RAM": ( "ram_usada_gb" if medicoes.get("RAM") == "GB" else "porcentagem_uso_ram" )
+    }
+
+    metricas_modelo = []
+
+    for metrica, coluna in metricas.items():
+
+        if metrica not in medicoes:
+            continue
+
+        if coluna not in df.columns:
+            continue
+
+        X = df[["timestamp"]]
+        y = df[coluna]
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+
+        model = LinearRegression()
+        model.fit(X_train, y_train)
+
+        y_test_pred = model.predict(X_test)
+
+        r2 = r2_score(y_test, y_test_pred)
+        mae = mean_absolute_error(y_test, y_test_pred)
+        mse = mean_squared_error(y_test, y_test_pred)
+        rmse = np.sqrt(mse)
+
+        metricas_modelo.append({
+            "metrica": metrica,
+            "r2": round(r2, 2),
+            "mae": round(mae, 2),
+            "mse": round(mse, 2),
+            "rmse": round(rmse, 2)
+        })
+
+        model = LinearRegression()
+        model.fit(X, y)
+
+        previsoes = model.predict(future_min)
+
+        if metrica in ["CPU"] or (metrica == "RAM" and medicoes.get("RAM") == "%"):
+            previsoes = np.clip(previsoes, 0, 100)
+
+        if metrica == "SCAN":
+            previsoes = np.clip(previsoes, 0, None)
+
+        df_new[coluna] = np.round(previsoes, decimals=2)
+
+    df_metrics = pd.DataFrame(metricas_modelo)
+    return df_new, df_metrics
 
 def client_analysis(json_clp, s3):
     print(f"\n[{datetime.now()}] [Análise Micro] Iniciando processamento por cliente/CLP...")
     for (id_company, id_clp), value in json_clp.items():
+        now = datetime.now()
+        formatt = now.strftime("%Y-%m-%d_%H-%M")
         df = None
         df = convert_csv_to_df(value, s3, df)
         micro_analysis = micro_analysis_plc(df, value["medicoes"])
         id_empresa = get_id_company(value["csv"][0])
-        upload_json(s3, micro_analysis, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-micro")
+        upload_json(s3, micro_analysis, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-micro/{formatt}")
         
         if "PROCESSOS" in value["medicoes"]:
             latest_process = analysis_latest_process(df)
-            upload_json(s3, latest_process, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-ultimos-processos")
+            upload_json(s3, latest_process, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-ultimos-processos/{formatt}")
             ranking = ranking_process(df)
-            upload_json(s3, ranking, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-ranking-processos")
+            upload_json(s3, ranking, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-ranking-processos/{formatt}")
         if "PING" in value["medicoes"]:
             ping = ping_performance(df)
-            upload_json(s3, ping, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-ping")
+            upload_json(s3, ping, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-ping/{formatt}")
 
-        # TODO: Fazer validação de medições 
+        # TODO: Vaidar medições e script
         if "CPU" in value["medicoes"] or "SCAN" in value["medicoes"] or "RAM" in value["medicoes"]:
+            # CPU performance padrão - gráfico de linhas
             scan_cpu = scan_cpu_performance(df, value["medicoes"])
-            upload_json(s3, scan_cpu, f"id-empresa-{id_empresa}/id-clp-{id_clp}/scan-cpu-performance")
+            upload_json(s3, scan_cpu, f"id-empresa-{id_empresa}/id-clp-{id_clp}/scan-cpu-performance/{formatt}")
+            upload_json(s3, scan_cpu, f"id-empresa-{id_empresa}/id-clp-{id_clp}/scan-cpu-performance/ultimo-resultado")
+
+            # Histórico
+            history_performance = history_performance_transform(scan_cpu, s3, f"gold/id-empresa-{id_empresa}/id-clp-{id_clp}/history-performance/history.json")
+            upload_json(s3, history_performance, f"id-empresa-{id_empresa}/id-clp-{id_clp}/history-performance/history")
+
+
+            # Predição
+            df_prediction, df_metrics = performance_prediction(history_performance, value["medicoes"])
+            upload_json(s3, df_prediction, f"id-empresa-{id_empresa}/id-clp-{id_clp}/prediction-performance/{formatt}")
+            upload_json(s3, df_prediction, f"id-empresa-{id_empresa}/id-clp-{id_clp}/prediction-performance/ultimo-resultado")
+
+            # Métrica
+            upload_json(s3, df_metrics, f"id-empresa-{id_empresa}/id-clp-{id_clp}/prediction-metrics/{formatt}")
+            upload_json(s3, df_metrics, f"id-empresa-{id_empresa}/id-clp-{id_clp}/prediction-metrics/ultimo-resultado")
 
     print(f"[{datetime.now()}] [Análise Micro] Concluída para todos os CLPs.")
 
@@ -376,6 +507,8 @@ def provider_analysis(json_clp, s3):
     empresa_processada = []
 
     for (id_empresa, id_clp), value in json_clp.items():
+        now = datetime.now()
+        formatt = now.strftime("%Y-%m-%d_%H-%M")
         empresa = value["id_fornecedor"]
 
         if empresa in empresa_processada:
@@ -400,9 +533,9 @@ def provider_analysis(json_clp, s3):
         model = model_analysis(df_empresa)
         model_score = model_health_score(df_empresa)
         critical = model_critical(df_empresa)
-        upload_json(s3, model, f"id-empresa-{empresa}/modelo-resumo")
-        upload_json(s3, model_score, f"id-empresa-{empresa}/modelos-health-score-historico")
-        upload_json(s3, critical, f"id-empresa-{empresa}/modelos-health-score-status")
+        upload_json(s3, model, f"id-empresa-{empresa}/modelo-resumo/{formatt}")
+        upload_json(s3, model_score, f"id-empresa-{empresa}/modelos-health-score-historico/{formatt}")
+        upload_json(s3, critical, f"id-empresa-{empresa}/modelos-health-score-status/{formatt}")
 
     print(f"[{datetime.now()}] [Análise Macro] Concluída para todos os fornecedores.")
         

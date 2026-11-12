@@ -227,8 +227,7 @@ for p in psutil.process_iter(['cpu_percent']):
     pass
 
 contador = 0
-while(contador < 100):
-    time.sleep(10)
+while(contador < 10):
 
     # Timestamp
     timestamp = datetime.now()
