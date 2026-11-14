@@ -323,9 +323,13 @@ def history_performance_transform(new_df: pd.DataFrame, s3, key):
     return att_df
     
 def performance_prediction(df_performance: pd.DataFrame, medicoes: dict):
-    df = df_performance.copy().reset_index()
-
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df_performance.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], format="mixed")
+    df = (
+        df.drop_duplicates(subset="timestamp", keep="last")
+        .sort_values("timestamp")
+        .reset_index(drop=True)
+    )
 
     start = df["timestamp"].min()
 
