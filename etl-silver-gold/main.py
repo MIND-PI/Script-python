@@ -91,7 +91,8 @@ def validate_json(json_clp: dict, id_company, id_clp, key, s3):
             "medicoes": get_measurements(id_clp),
             "csv": [key],
             "company": id_company,
-            "id_fornecedor": id_fornecedor
+            "id_fornecedor": id_fornecedor,
+            "limit": get_limit(id_clp)
         }
     else:
         json_clp[id_company, id_clp]["csv"].append(key)
@@ -107,13 +108,43 @@ def get_measurements(id):
     unidade_medida
     FROM clp_medicao cm
     JOIN tipo_medicao tm ON tm.idTipoMedicao = cm.tipoMedicaoId
-    WHERE clpId = %s;"""
+    WHERE cm.clpId = %s AND cm.status = 1;"""
 
     filter = (id, )
 
     cursor.execute(query, filter)
 
     result = cursor.fetchall()
+
+    cursor.close()
+
+    return dict(result)
+
+def get_limit(id):
+    conn = config.conn_mysql()
+    cursor = conn.cursor()
+
+    query = """SELECT 
+        apelido, 
+        parametro
+    FROM clp_medicao cm
+    JOIN tipo_medicao tm ON tm.idTipoMedicao = cm.tipoMedicaoId
+    WHERE   
+        cm.clpId = %s
+    AND
+        cm.status = 1;
+    """
+
+    filter = (id, )
+
+    cursor.execute(query, filter)
+
+    result = cursor.fetchall()
+
+    cursor.close()
+
+    if not result:
+        return {}
 
     cursor.close()
 
@@ -137,8 +168,11 @@ def convert_csv_to_df(value, s3: BaseClient, df):
         df = pd.concat([df, data], ignore_index=True)
     return df
 
-def micro_analysis_plc(df: pd.DataFrame, value: dict):
+def micro_analysis_plc(df: pd.DataFrame, value: dict, df_prediction: pd.DataFrame):
     date = df["timestamp"].max()
+
+    measurement = value["medicoes"]
+    limit = value["limit"]
 
     df_new = pd.DataFrame(
         {
@@ -147,45 +181,72 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict):
         "id_empresa": [df.iloc[0]["id_empresa"]],
         "timestamp": [date],
         }
-    
     )
 
-    if "CPU" in value:
+    out_limit = []
+    prevision_risk = False
+
+    if "CPU" in measurement:
+        peak_cpu = df["porcentagem_uso_cpu"].max()
         df_new["porcentagem_uso_cpu"] = df.loc[df["timestamp"] == date, "porcentagem_uso_cpu"].iloc[-1]
-        df_new["pico_porcentagem_uso_cpu"] = [df["porcentagem_uso_cpu"].max()]
+        df_new["pico_porcentagem_uso_cpu"] = [peak_cpu]
         df_new["minimo_porcentagem_uso_cpu"] = [df["porcentagem_uso_cpu"].min()]
+        if peak_cpu >= limit["CPU"]:
+            out_limit.append("CPU")
+
+        if df_prediction["porcentagem_uso_cpu"].max() >= limit["CPU"] and not prevision_risk:
+            prevision_risk = True
     
-    if "SCAN" in value:
+    if "SCAN" in measurement:
+        peak_scan = df["scan_time_ms"].max()
         df_new["scan_time_atual"] = df.loc[df["timestamp"] == date, "scan_time_ms"].iloc[-1]
-        df_new["scan_time_pico"] = [df["scan_time_ms"].max()]
+        df_new["scan_time_pico"] = [peak_scan]
         df_new["scan_time_minimo"] = [df["scan_time_ms"].min()]
+        if peak_scan >= limit["SCAN"]:
+            out_limit.append("SCAN")
 
-    if "RAM" in value and value.get("RAM", "") == "GB":
+        if df_prediction["scan_time_ms"].max() >= limit["SCAN"] and not prevision_risk:
+            prevision_risk = True
+
+    if "RAM" in measurement and measurement.get("RAM", "") == "GB":
+        peak_ram_gb = df["ram_usada_gb"].max()
         df_new["consumo_memoria_ram"] = df.loc[df["timestamp"] == date, "ram_usada_gb"].iloc[-1]
-        df_new["pico_consumo_memoria_ram_gb"] = [df["ram_usada_gb"].max()]
+        df_new["pico_consumo_memoria_ram_gb"] = [peak_ram_gb]
         df_new["minimo_consumo_memoria_ram_gb"] = [df["ram_usada_gb"].min()]
+        if peak_ram_gb >= limit["RAM"] and "RAM" not in out_limit:
+            out_limit.append("RAM")
 
-    if "RAM" in value and value.get("RAM", "") == "%":
+        if df_prediction["porcentagem_uso_ram"].max() >= limit["RAM"] and not prevision_risk:
+            prevision_risk = True
+
+    if "RAM" in measurement and measurement.get("RAM", "") == "%":
+        peak_ram_percent = df["porcentagem_uso_ram"].max()
         df_new["porcentagem_uso_ram"] = df.loc[df["timestamp"] == date, "porcentagem_uso_ram"].iloc[-1]
-        df_new["pico_consumo_memoria_ram_porcentagem"] = [df["porcentagem_uso_ram"].max()]
+        df_new["pico_consumo_memoria_ram_porcentagem"] = [peak_ram_percent]
         df_new["minimo_consumo_memoria_ram_porcentagem"] = [df["porcentagem_uso_ram"].min()]
 
-    if "UPLOAD" in value:
+        if peak_ram_percent >= limit["RAM"] and "RAM" not in out_limit:
+            out_limit.append("RAM")
+
+        if df_prediction["porcentagem_uso_ram"].max() >= limit["RAM"] and not prevision_risk:
+            prevision_risk = True
+
+    if "UPLOAD" in measurement:
         df_new["pacotes_enviados"] = df.loc[df["timestamp"] == date, "vel_upload"].iloc[-1]
 
-    if "DOWNLOAD" in value:
+    if "DOWNLOAD" in measurement:
         df_new["pacotes_recebido"] = df.loc[df["timestamp"] == date, "vel_download"].iloc[-1]
 
-    if "LOSS" in value:
+    if "LOSS" in measurement:
         df_new["perda_pacote"] = df.loc[df["timestamp"] == date, "perda_pacotes"].iloc[-1]
 
-    if "SWAP" in value:
+    if "SWAP" in measurement:
         df_new["porcentagem_uso_swap"] = df.loc[df["timestamp"] == date, "porcentagem_uso_swap"].iloc[-1]
 
-    if "UPTIME" in value:
+    if "UPTIME" in measurement:
         df_new["uptime_horas_minutos"] = df.loc[df["timestamp"] == date, "uptime_horas_minutos"].iloc[-1]
 
-    if "HEALTH" in value:
+    if "HEALTH" in measurement:
         health_score = df.loc[df["timestamp"] == date, "health_score"].iloc[-1]
 
         df_new["health_score"] = [health_score]
@@ -199,6 +260,9 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict):
             choice,
             default="Estável"
         )
+
+    df_new["acima_limite"] = [out_limit]
+    df_new["risco_predicao"] = prevision_risk
 
     return df_new
 
@@ -416,9 +480,7 @@ def client_analysis(json_clp, s3):
         formatt = now.strftime("%Y-%m-%d_%H-%M")
         df = None
         df = convert_csv_to_df(value, s3, df)
-        micro_analysis = micro_analysis_plc(df, value["medicoes"])
         id_empresa = get_id_company(value["csv"][0])
-        upload_json(s3, micro_analysis, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-micro/{formatt}")
         
         if "PROCESSOS" in value["medicoes"]:
             latest_process = analysis_latest_process(df)
@@ -449,6 +511,11 @@ def client_analysis(json_clp, s3):
             # Métrica
             upload_json(s3, df_metrics, f"id-empresa-{id_empresa}/id-clp-{id_clp}/prediction-metrics/{formatt}")
             upload_json(s3, df_metrics, f"id-empresa-{id_empresa}/id-clp-{id_clp}/prediction-metrics/ultimo-resultado")
+
+        print(value)
+        micro_analysis = micro_analysis_plc(df, value, df_prediction)
+        upload_json(s3, micro_analysis, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-micro/{formatt}")
+
 
     print(f"[{datetime.now()}] [Análise Micro] Concluída para todos os CLPs.")
 
