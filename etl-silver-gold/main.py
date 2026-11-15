@@ -26,6 +26,7 @@ def silver_read(s3, prefix, start: datetime, end: datetime):
     )
 
     json_clp = {}
+    location = get_location(start, end)
 
     for i in response.get("Contents", []):
         # TODO: Verificar se a empresa está inativa
@@ -36,7 +37,7 @@ def silver_read(s3, prefix, start: datetime, end: datetime):
             id_company = get_id_company(key)
             id_clp = get_id_plc(key)
 
-            validate_json(json_clp, id_company, id_clp, key, s3)
+            validate_json(json_clp, id_company, id_clp, key, s3, location)
 
     if not json_clp:
         print("Nenhum válido arquivo encontrado")
@@ -48,16 +49,14 @@ def silver_read(s3, prefix, start: datetime, end: datetime):
 # TODO: Refazer filtro e validar valores do filtro
 def validation_filter():
     now = datetime.now(timezone.utc)
-    if now.day == 28:
+    if now.day == 28 and now.hour == 1 and now.minute == 30:
         start_actual_month = now.replace(
         day=1, hour=0, minute=0, second=0, microsecond=0
         )
         end = start_actual_month + timedelta(days=27)
         start = (start_actual_month - timedelta(days=1)).replace(day=28)
-    elif now.hour == 23 and now.minute == 30:
-        start = now.replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+    elif now.weekday() == 6 and now.hour == 23 and now.minute == 30:
+        start = now - timedelta(days=7)
         end = now
     else:
         start = now - timedelta(minutes=15)
@@ -80,7 +79,23 @@ def get_id_company(key):
 
     return id_company
 
-def validate_json(json_clp: dict, id_company, id_clp, key, s3):
+def get_location(start: datetime, end: datetime):
+    days = (end - start).days
+    if days >= 28:      
+        return "30-dias"
+    if days >= 7:
+        return "7-dias"
+    return ""  
+
+def build_key(*parts: str):
+    clean = []
+    for p in parts:
+        if p:
+            clean.append(p.strip("/"))
+
+    return "/".join(clean)
+
+def validate_json(json_clp: dict, id_company, id_clp, key, s3, location):
 
     if (id_company, id_clp) not in json_clp:
         response = get_csv(key, s3)
@@ -92,7 +107,8 @@ def validate_json(json_clp: dict, id_company, id_clp, key, s3):
             "csv": [key],
             "company": id_company,
             "id_fornecedor": id_fornecedor,
-            "limit": get_limit(id_clp)
+            "limit": get_limit(id_clp),
+            "location": location
         }
     else:
         json_clp[id_company, id_clp]["csv"].append(key)
@@ -481,40 +497,47 @@ def client_analysis(json_clp, s3):
         df = None
         df = convert_csv_to_df(value, s3, df)
         id_empresa = get_id_company(value["csv"][0])
+        location = value["location"]
+        base = f"id-empresa-{id_empresa}/id-clp-{id_clp}"
         
         if "PROCESSOS" in value["medicoes"]:
             latest_process = analysis_latest_process(df)
-            upload_json(s3, latest_process, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-ultimos-processos/{formatt}")
+            upload_json(s3, latest_process, build_key(base, "clp-ultimos-processos", location, formatt))
+
             ranking = ranking_process(df)
-            upload_json(s3, ranking, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-ranking-processos/{formatt}")
+            upload_json(s3, ranking, build_key(base, "clp-ranking-processos", location, formatt))
+
+
         if "PING" in value["medicoes"]:
             ping = ping_performance(df)
-            upload_json(s3, ping, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-ping/{formatt}")
+            upload_json(s3, ping, build_key(base, "clp-ping", location, formatt))
 
         # TODO: Vaidar medições e script
         if "CPU" in value["medicoes"] or "SCAN" in value["medicoes"] or "RAM" in value["medicoes"]:
             # CPU performance padrão - gráfico de linhas
             scan_cpu = scan_cpu_performance(df, value["medicoes"])
-            upload_json(s3, scan_cpu, f"id-empresa-{id_empresa}/id-clp-{id_clp}/scan-cpu-performance/{formatt}")
-            upload_json(s3, scan_cpu, f"id-empresa-{id_empresa}/id-clp-{id_clp}/scan-cpu-performance/ultimo-resultado")
+            upload_json(s3, scan_cpu, build_key(base, "scan-cpu-performance", location, formatt))
+            upload_json(s3, scan_cpu, build_key(base, "scan-cpu-performance", location, "ultimo-resultado"))
 
             # Histórico
             history_performance = history_performance_transform(scan_cpu, s3, f"gold/id-empresa-{id_empresa}/id-clp-{id_clp}/history-performance/history.json")
-            upload_json(s3, history_performance, f"id-empresa-{id_empresa}/id-clp-{id_clp}/history-performance/history")
+            upload_json(s3, history_performance, build_key(base, "history-performance", "history"))
 
 
             # Predição
             df_prediction, df_metrics = performance_prediction(history_performance, value["medicoes"])
-            upload_json(s3, df_prediction, f"id-empresa-{id_empresa}/id-clp-{id_clp}/prediction-performance/{formatt}")
-            upload_json(s3, df_prediction, f"id-empresa-{id_empresa}/id-clp-{id_clp}/prediction-performance/ultimo-resultado")
+            upload_json(s3, df_prediction, build_key(base, "prediction-performance", formatt))
+            upload_json(s3, df_prediction, build_key(base, "prediction-performance", "ultimo-resultado"))
+
 
             # Métrica
-            upload_json(s3, df_metrics, f"id-empresa-{id_empresa}/id-clp-{id_clp}/prediction-metrics/{formatt}")
-            upload_json(s3, df_metrics, f"id-empresa-{id_empresa}/id-clp-{id_clp}/prediction-metrics/ultimo-resultado")
+            upload_json(s3, df_metrics, build_key(base, "prediction-metrics", formatt))
+            upload_json(s3, df_metrics, build_key(base, "prediction-metrics", "ultimo-resultado"))
 
-        print(value)
         micro_analysis = micro_analysis_plc(df, value, df_prediction)
-        upload_json(s3, micro_analysis, f"id-empresa-{id_empresa}/id-clp-{id_clp}/clp-micro/{formatt}")
+        upload_json(s3, micro_analysis, build_key(base, "clp-micro", location, formatt))
+        upload_json(s3, micro_analysis, build_key(base, "clp-micro", location, "ultimo-resultado"))
+
 
 
     print(f"[{datetime.now()}] [Análise Micro] Concluída para todos os CLPs.")
@@ -578,6 +601,7 @@ def provider_analysis(json_clp, s3):
     empresa_processada = []
 
     for (id_empresa, id_clp), value in json_clp.items():
+        location = value["location"]
         now = datetime.now()
         formatt = now.strftime("%Y-%m-%d_%H-%M")
         empresa = value["id_fornecedor"]
@@ -604,9 +628,13 @@ def provider_analysis(json_clp, s3):
         model = model_analysis(df_empresa)
         model_score = model_health_score(df_empresa)
         critical = model_critical(df_empresa)
-        upload_json(s3, model, f"id-empresa-{empresa}/modelo-resumo/{formatt}")
-        upload_json(s3, model_score, f"id-empresa-{empresa}/modelos-health-score-historico/{formatt}")
-        upload_json(s3, critical, f"id-empresa-{empresa}/modelos-health-score-status/{formatt}")
+
+
+        base = f"id-empresa-{empresa}"
+
+        upload_json(s3, model, build_key(base, "modelo-resumo", location, formatt))
+        upload_json(s3, model_score, build_key(base, "modelos-health-score-historico", location, formatt))
+        upload_json(s3, critical, build_key(base, "modelos-health-score-status", location, formatt))
 
     print(f"[{datetime.now()}] [Análise Macro] Concluída para todos os fornecedores.")
         
