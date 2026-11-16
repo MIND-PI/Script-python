@@ -15,6 +15,35 @@ from sklearn.model_selection import train_test_split
 from botocore.exceptions import ClientError
 import io
 
+RESAMPLE_FREQ = {
+    "": None,           
+    "7-dias": "30min",  
+    "30-dias": "2h",    
+}
+
+def resample_performance(df: pd.DataFrame, location: str):
+    freq = RESAMPLE_FREQ.get(location)
+
+    if not freq:
+        return df.sort_values("timestamp", ascending=False)
+
+    df = df.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], format="mixed")
+
+    colunas = [c for c in df.columns if c != "timestamp"]
+    grupo = df.set_index("timestamp")[colunas].resample(freq)
+
+    media = grupo.mean().round(2)
+    pico = grupo.max().round(2).add_suffix("_pico")
+    minimo = grupo.min().round(2).add_suffix("_minimo")
+
+    resultado = media.join(pico).join(minimo).dropna(how="all").reset_index()    
+    return resultado.sort_values("timestamp", ascending=False)
+
+def prediction_exceeds(df_prediction, column: str, limit) -> bool:
+    if df_prediction is None or column not in df_prediction.columns:
+        return False
+    return df_prediction[column].max() >= limit
 
 def silver_read(s3, prefix, start: datetime, end: datetime):
     print(f"[{datetime.now()}] Iniciando leitura da camada Silver...")
@@ -29,7 +58,6 @@ def silver_read(s3, prefix, start: datetime, end: datetime):
     location = get_location(start, end)
 
     for i in response.get("Contents", []):
-        # TODO: Verificar se a empresa está inativa
         lastmodfied = i.get("LastModified")
         key = i.get("Key")
 
@@ -46,7 +74,6 @@ def silver_read(s3, prefix, start: datetime, end: datetime):
     print(f"[{datetime.now()}] Mapeamento concluído. Total de CLPs únicos encontrados: {len(json_clp)}")
     return json_clp
 
-# TODO: Refazer filtro e validar valores do filtro
 def validation_filter():
     now = datetime.now(timezone.utc)
     if now.day == 28 and now.hour == 1 and now.minute == 30:
@@ -184,7 +211,7 @@ def convert_csv_to_df(value, s3: BaseClient, df):
         df = pd.concat([df, data], ignore_index=True)
     return df
 
-def micro_analysis_plc(df: pd.DataFrame, value: dict, df_prediction: pd.DataFrame):
+def micro_analysis_plc(df: pd.DataFrame, value: dict, df_prediction: pd.DataFrame, location: str = ""):
     date = df["timestamp"].max()
 
     measurement = value["medicoes"]
@@ -210,7 +237,7 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict, df_prediction: pd.DataFram
         if peak_cpu >= limit["CPU"]:
             out_limit.append("CPU")
 
-        if df_prediction["porcentagem_uso_cpu"].max() >= limit["CPU"] and not prevision_risk:
+        if prediction_exceeds(df_prediction, "porcentagem_uso_cpu", limit["CPU"]):
             prevision_risk = True
     
     if "SCAN" in measurement:
@@ -221,7 +248,7 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict, df_prediction: pd.DataFram
         if peak_scan >= limit["SCAN"]:
             out_limit.append("SCAN")
 
-        if df_prediction["scan_time_ms"].max() >= limit["SCAN"] and not prevision_risk:
+        if prediction_exceeds(df_prediction, "scan_time_ms", limit["SCAN"]):
             prevision_risk = True
 
     if "RAM" in measurement and measurement.get("RAM", "") == "GB":
@@ -229,10 +256,11 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict, df_prediction: pd.DataFram
         df_new["consumo_memoria_ram"] = df.loc[df["timestamp"] == date, "ram_usada_gb"].iloc[-1]
         df_new["pico_consumo_memoria_ram_gb"] = [peak_ram_gb]
         df_new["minimo_consumo_memoria_ram_gb"] = [df["ram_usada_gb"].min()]
+
         if peak_ram_gb >= limit["RAM"] and "RAM" not in out_limit:
             out_limit.append("RAM")
 
-        if df_prediction["porcentagem_uso_ram"].max() >= limit["RAM"] and not prevision_risk:
+        if prediction_exceeds(df_prediction, "ram_usada_gb", limit["RAM"]):
             prevision_risk = True
 
     if "RAM" in measurement and measurement.get("RAM", "") == "%":
@@ -244,7 +272,7 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict, df_prediction: pd.DataFram
         if peak_ram_percent >= limit["RAM"] and "RAM" not in out_limit:
             out_limit.append("RAM")
 
-        if df_prediction["porcentagem_uso_ram"].max() >= limit["RAM"] and not prevision_risk:
+        if prediction_exceeds(df_prediction, "porcentagem_uso_ram", limit["RAM"]):
             prevision_risk = True
 
     if "UPLOAD" in measurement:
@@ -263,12 +291,16 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict, df_prediction: pd.DataFram
         df_new["uptime_horas_minutos"] = df.loc[df["timestamp"] == date, "uptime_horas_minutos"].iloc[-1]
 
     if "HEALTH" in measurement:
-        health_score = df.loc[df["timestamp"] == date, "health_score"].iloc[-1]
+        if location == "":
+            health_score = df.loc[df["timestamp"] == date, "health_score"].iloc[-1]
+            df_new["health_score"] = [health_score]
+        else:
+            health_score = round(df["health_score"].mean(), 2)
+            df_new["health_score"] = [health_score]
+            df_new["health_score_minimo"] = [round(df["health_score"].min(), 2)]
+            df_new["health_score_maximo"] = [round(df["health_score"].max(), 2)]
 
-        df_new["health_score"] = [health_score]
-
-        condition = [health_score < 40,health_score < 60]
-
+        condition = [health_score < 40, health_score < 60]
         choice = ["Crítico", "Atenção"]
 
         df_new["health_score_status"] = np.select(
@@ -359,7 +391,7 @@ def upload_json(s3, df, key):
     )
     print(f"[{datetime.now()}] Upload realizado com sucesso para: gold/{key}.json")
 
-def scan_cpu_performance(df: pd.DataFrame, medicoes: dict):
+def scan_cpu_performance(df: pd.DataFrame, medicoes: dict, location: str = ""):
     df_new = pd.DataFrame({
         "timestamp": df["timestamp"]
     })
@@ -376,7 +408,7 @@ def scan_cpu_performance(df: pd.DataFrame, medicoes: dict):
     if "RAM" in medicoes and medicoes.get("RAM", "") == "%":
         df_new["porcentagem_uso_ram"] = df["porcentagem_uso_ram"]
 
-    return df_new.sort_values("timestamp", ascending=False)
+    return resample_performance(df_new, location)
 
 def history_performance_transform(new_df: pd.DataFrame, s3, key):
     try:
@@ -515,26 +547,24 @@ def client_analysis(json_clp, s3):
         # TODO: Vaidar medições e script
         if "CPU" in value["medicoes"] or "SCAN" in value["medicoes"] or "RAM" in value["medicoes"]:
             # CPU performance padrão - gráfico de linhas
-            scan_cpu = scan_cpu_performance(df, value["medicoes"])
+            scan_cpu = scan_cpu_performance(df, value["medicoes"], location)
             upload_json(s3, scan_cpu, build_key(base, "scan-cpu-performance", location, formatt))
             upload_json(s3, scan_cpu, build_key(base, "scan-cpu-performance", location, "ultimo-resultado"))
 
-            # Histórico
-            history_performance = history_performance_transform(scan_cpu, s3, f"gold/id-empresa-{id_empresa}/id-clp-{id_clp}/history-performance/history.json")
-            upload_json(s3, history_performance, build_key(base, "history-performance", "history"))
+            df_prediction = None
+            if location == "":
+                raw = scan_cpu_performance(df, value["medicoes"])
+                history_performance = history_performance_transform(raw, s3, build_key("gold", base, "history-performance", "history.json"))
 
+                upload_json(s3, history_performance, build_key(base, "history-performance", "history"))
 
-            # Predição
-            df_prediction, df_metrics = performance_prediction(history_performance, value["medicoes"])
-            upload_json(s3, df_prediction, build_key(base, "prediction-performance", formatt))
-            upload_json(s3, df_prediction, build_key(base, "prediction-performance", "ultimo-resultado"))
+                df_prediction, df_metrics = performance_prediction(history_performance, value["medicoes"])
+                upload_json(s3, df_prediction, build_key(base, "prediction-performance", formatt))
+                upload_json(s3, df_prediction, build_key(base, "prediction-performance", "ultimo-resultado"))
+                upload_json(s3, df_metrics, build_key(base, "prediction-metrics", formatt))
+                upload_json(s3, df_metrics, build_key(base, "prediction-metrics", "ultimo-resultado"))
 
-
-            # Métrica
-            upload_json(s3, df_metrics, build_key(base, "prediction-metrics", formatt))
-            upload_json(s3, df_metrics, build_key(base, "prediction-metrics", "ultimo-resultado"))
-
-        micro_analysis = micro_analysis_plc(df, value, df_prediction)
+        micro_analysis = micro_analysis_plc(df, value, df_prediction, location)
         upload_json(s3, micro_analysis, build_key(base, "clp-micro", location, formatt))
         upload_json(s3, micro_analysis, build_key(base, "clp-micro", location, "ultimo-resultado"))
 
