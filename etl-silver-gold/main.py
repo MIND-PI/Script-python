@@ -1,6 +1,7 @@
 import config
 import boto3
 import os
+from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
 import mysql.connector
 from mysql.connector.cursor import MySQLCursor
@@ -14,6 +15,14 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from botocore.exceptions import ClientError
 import io
+
+os.environ.setdefault("AWS_BUCKET_NAME", "s3-mind-26")
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+#procura o .env na pasta da ELT, e se não achar, na raiz do repositório
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+load_dotenv(os.path.join(BASE_DIR, "..", ".env"))
 
 RESAMPLE_FREQ = {
     "": None,           
