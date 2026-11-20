@@ -78,23 +78,43 @@ def buscar_limites(id_clp):
     conexao.close()
     return limites
 
+# Até esta fração do limite a métrica vale 100; do limite em diante vale 0
+FRACAO_SEM_PENALIDADE = 0.5
+
 def calcular_health_score(cpu, ram, swap, scan_time, latencia, limites):
     pesos = {"cpu": 20, "ram": 20, "swap": 15, "scan_time": 20, "latencia": 15}
     valores = {"cpu": cpu, "ram": ram, "swap": swap, "scan_time": scan_time, "latencia": latencia}
-    notas = {}
-    for indicador, valor in valores.items():
+    soma_notas = 0
+    soma_pesos = 0
+
+    for indicador, peso in pesos.items():
+        # métrica que o cliente não monitora (ou limite inválido): fica fora da conta
         try:
-            numero = float(valor)
             limite = float(limites[indicador])
-            if (not math.isfinite(numero) or numero < 0
-                    or not math.isfinite(limite) or limite <= 0):
-                return ""
-            nota = max(0, 100 - (numero / limite * 100))
-            notas[indicador] = nota
-        except (ValueError, TypeError, KeyError):
-            return ""
-    score = sum(notas[indicador] * pesos[indicador] for indicador in pesos) / sum(pesos.values())
-    return round(score, 2)
+        except (KeyError, ValueError, TypeError):
+            continue
+        if not math.isfinite(limite) or limite <= 0:
+            continue
+
+        # métrica monitorada, mas sem leitura válida (ex.: ping sem resposta): nota 0
+        try:
+            numero = float(valores[indicador])
+            if not math.isfinite(numero) or numero < 0:
+                raise ValueError
+            uso = numero / limite
+            if uso <= FRACAO_SEM_PENALIDADE:
+                nota = 100
+            else:
+                nota = max(0, (1 - uso) / (1 - FRACAO_SEM_PENALIDADE) * 100)
+        except (ValueError, TypeError):
+            nota = 0
+
+        soma_notas += nota * peso
+        soma_pesos += peso
+
+    if soma_pesos == 0:
+        return ""
+    return round(soma_notas / soma_pesos, 2)
 
 def converter_uptime(uptime_segundos):
     if uptime_segundos is None or uptime_segundos.strip() == "":
