@@ -74,9 +74,19 @@ def buscar_limites(id_clp):
             limites["scan_time"] = linha["parametro"]
         elif linha["apelido"] == "PING":
             limites["latencia"] = linha["parametro"]
+        elif linha["apelido"] == "LOSS":
+            limites["perda_pacotes"] = linha["parametro"]
     cursor.close()
     conexao.close()
     return limites
+
+def passou_do_limite(valor, limite):
+    # alerta = o valor chegou ao parâmetro cadastrado no banco (ou passou dele)
+    # componente sem limite (não monitorado) ou sem leitura válida: não é alerta
+    try:
+        return 1 if float(valor) >= float(limite) else 0
+    except (ValueError, TypeError):
+        return 0
 
 # Até esta fração do limite a métrica vale 100; do limite em diante vale 0
 FRACAO_SEM_PENALIDADE = 0.5
@@ -131,14 +141,16 @@ def converter_uptime(uptime_segundos):
         print(f"Aviso: uptime inválido: {uptime_segundos}")
         return ""
 
-resposta = s3.list_objects_v2(Bucket=BUCKET, Prefix="bronze/")
+def listar_arquivos(prefixo):
+    arquivos = []
+    paginator = s3.get_paginator("list_objects_v2")
+    for pagina in paginator.paginate(Bucket=BUCKET, Prefix=prefixo):
+        arquivos.extend(pagina.get("Contents", []))
+    return arquivos
 
 limite_tempo = datetime.now(timezone.utc) - timedelta(minutes=15)
 
-for arquivo in resposta.get("Contents", []):
-    print(arquivo["Key"])
-
-for arquivo in resposta.get("Contents", []):
+for arquivo in listar_arquivos("bronze/"):
     if arquivo["LastModified"] < limite_tempo:
         continue
 
@@ -173,6 +185,12 @@ for arquivo in resposta.get("Contents", []):
             latencia=linha["latencia_ms"],
             limites=limites
         )
+        linha["alerta_cpu"] = passou_do_limite(linha["porcentagem_uso_cpu"], limites.get("cpu"))
+        linha["alerta_ram"] = passou_do_limite(linha["porcentagem_uso_ram"], limites.get("ram"))
+        linha["alerta_swap"] = passou_do_limite(linha["porcentagem_uso_swap"], limites.get("swap"))
+        linha["alerta_scan"] = passou_do_limite(linha["scan_time_ms"], limites.get("scan_time"))
+        linha["alerta_ping"] = passou_do_limite(linha["latencia_ms"], limites.get("latencia"))
+        linha["alerta_loss"] = passou_do_limite(linha["perda_pacotes"], limites.get("perda_pacotes"))
         colunas_decimais = [
             "porcentagem_uso_cpu", "porcentagem_uso_ram", "porcentagem_uso_swap",
             "scan_time_ms", "latencia_ms", "health_score", "ram_total_gb",
