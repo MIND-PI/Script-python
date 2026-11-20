@@ -14,6 +14,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from botocore.exceptions import ClientError
 import io
+import macro_clp
 
 RESAMPLE_FREQ = {
     "": None,           
@@ -686,6 +687,7 @@ def main():
 
     client_analysis(json_clp, s3)
     provider_analysis(json_clp, s3)
+    macro_clp.client_macro_analysis(json_clp, s3)
 
     print(f"[{datetime.now()}] PIPELINE GOLD FINALIZADO COM SUCESSO")
 
