@@ -1,4 +1,4 @@
-import boto3, dotenv, os
+import boto3, dotenv, os, pandas as pd
 from botocore.exceptions import ClientError
 import mysql.connector
 
@@ -19,3 +19,15 @@ def conn_mysql():
     )
     return mydb
 
+
+LIMITE_ESTAVEL = 75
+LIMITE_ATENCAO = 50
+
+def classificar_health(score):
+    if pd.isna(score):
+        return "Sem dados"
+    if score >= LIMITE_ESTAVEL:
+        return "Estável"
+    if score >= LIMITE_ATENCAO:
+        return "Atenção"
+    return "Crítico"

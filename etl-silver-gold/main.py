@@ -300,14 +300,7 @@ def micro_analysis_plc(df: pd.DataFrame, value: dict, df_prediction: pd.DataFram
             df_new["health_score_minimo"] = [round(df["health_score"].min(), 2)]
             df_new["health_score_maximo"] = [round(df["health_score"].max(), 2)]
 
-        condition = [health_score < 40, health_score < 60]
-        choice = ["Crítico", "Atenção"]
-
-        df_new["health_score_status"] = np.select(
-            condition,
-            choice,
-            default="Estável"
-        )
+        df_new["health_score_status"] = config.classificar_health(health_score)
 
     df_new["acima_limite"] = [out_limit]
     df_new["risco_predicao"] = prevision_risk
@@ -577,9 +570,7 @@ def model_analysis(df: pd.DataFrame):
         health_medio=("health_score", "mean")
     ).reset_index()
 
-    condition = [df_analysis["health_medio"] < 40, df_analysis["health_medio"] <60]
-    choice = ["Crítico", "Atenção"]
-    df_analysis["status"] = np.select(condition, choice, default="Estável")
+    df_analysis["status"] = df_analysis["health_medio"].apply(config.classificar_health)
 
     df_analysis["health_medio"] = df_analysis["health_medio"].round(2)
 
@@ -595,9 +586,7 @@ def model_critical(df: pd.DataFrame):
         .reset_index()
     )
 
-    condition = [df_analysis["health_medio"] < 40, df_analysis["health_medio"] < 60]
-    choice = ["Crítico", "Atenção"]
-    df_analysis["status"] = np.select(condition, choice, default="Estável")
+    df_analysis["status"] = df_analysis["health_medio"].apply(config.classificar_health)
 
     ranking_status = (
         df_analysis["status"]
@@ -692,6 +681,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-    
