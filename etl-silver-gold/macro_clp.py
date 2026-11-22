@@ -35,11 +35,11 @@ import config   # mesmo config do main.py (conexão com MySQL)
 # ====================================================================
 
 # Faixas de status do Health Score (as mesmas usadas no resto do Gold):
-#   health < 40         -> Crítico
-#   40 <= health < 60   -> Atenção
-#   health >= 60        -> Estável
-LIMITE_CRITICO = 40
-LIMITE_ESTAVEL = 60
+#   health < LIMITE_ATENCAO   -> Crítico
+#   LIMITE_ATENCAO..LIMITE_ESTAVEL-1 -> Atenção
+#   health >= LIMITE_ESTAVEL  -> Estável
+LIMITE_CRITICO = config.LIMITE_ATENCAO
+LIMITE_ESTAVEL = config.LIMITE_ESTAVEL
 
 # Setor só pode ter "CLP fora da curva" se tiver pelo menos esta quantidade de CLPs com health.
 # (com poucos CLPs, um ruim já é metade do setor e não dá para chamar de "fora da curva")
@@ -88,12 +88,8 @@ NOME_COMPONENTE = {
 # ====================================================================
 
 def classificar_status(health):
-    """Recebe um health (número) e devolve o texto do status: Crítico, Atenção ou Estável."""
-    if health < LIMITE_CRITICO:
-        return "Crítico"
-    if health < LIMITE_ESTAVEL:
-        return "Atenção"
-    return "Estável"
+    """Recebe um health e devolve o status padrão do projeto."""
+    return config.classificar_health(health)
 
 
 def media(valores):

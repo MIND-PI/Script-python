@@ -17,6 +17,7 @@ from botocore.exceptions import ClientError
 import io
 import macro_modelo
 import micro_modelo
+import macro_clp
 
 os.environ.setdefault("AWS_BUCKET_NAME", "s3-mind-26")
 
@@ -688,6 +689,7 @@ def main():
 
     client_analysis(json_clp, s3)
     provider_analysis(json_clp, s3)
+    macro_clp.client_macro_analysis(json_clp, s3)
 
     print(f"[{datetime.now()}] PIPELINE GOLD FINALIZADO COM SUCESSO")
 
