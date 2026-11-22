@@ -1,7 +1,6 @@
 import config
 import boto3
 import os
-from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
 import mysql.connector
 from mysql.connector.cursor import MySQLCursor
@@ -10,28 +9,30 @@ import json
 from io import BytesIO
 import pandas as pd
 import numpy as np
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.model_selection import train_test_split
 from botocore.exceptions import ClientError
 import io
 import macro_modelo
 import micro_modelo
 import macro_clp
-
-os.environ.setdefault("AWS_BUCKET_NAME", "s3-mind-26")
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-#procura o .env na pasta da ELT, e se não achar, na raiz do repositório
-load_dotenv(os.path.join(BASE_DIR, ".env"))
-load_dotenv(os.path.join(BASE_DIR, "..", ".env"))
+import math
 
 RESAMPLE_FREQ = {
     "": None,           
     "7-dias": "30min",  
     "30-dias": "2h",    
 }
+
+def regression_metric(y_real, y_pred):
+    erro = y_real - y_pred
+    ss_res = np.sum(erro ** 2)
+    ss_tot = np.sum((y_real - np.mean(y_real)) ** 2)
+    if ss_tot == 0:
+        r2 = 1.0 if ss_res == 0 else 0.0
+    else:
+        r2 = 1 - ss_res / ss_tot
+    mae = np.mean(np.abs(erro))
+    mse = np.mean(erro ** 2)
+    return r2, mae, mse
 
 def resample_performance(df: pd.DataFrame, location: str):
     freq = RESAMPLE_FREQ.get(location)
@@ -487,33 +488,34 @@ def performance_prediction(df_performance: pd.DataFrame, medicoes: dict):
         if coluna not in df.columns:
             continue
 
-        X = df[["timestamp"]]
-        y = df[coluna]
+        x = df["timestamp"].to_numpy(dtype=float)
+        y = df[coluna].to_numpy(dtype=float)
 
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+        # mesmo corte do train_test_split(test_size=0.2, shuffle=False)
+        n_test = math.ceil(len(x) * 0.2)
+        x_train, x_test = x[:-n_test], x[-n_test:]
+        y_train, y_test = y[:-n_test], y[-n_test:]
 
-        model = LinearRegression()
-        model.fit(X_train, y_train)
+        if len(x_train) < 2 or len(x_test) < 1:
+            continue  # poucos dados para treinar
 
-        y_test_pred = model.predict(X_test)
+        a, b = np.polyfit(x_train, y_train, 1)
+        y_test_pred = a * x_test + b
 
-        r2 = r2_score(y_test, y_test_pred)
-        mae = mean_absolute_error(y_test, y_test_pred)
-        mse = mean_squared_error(y_test, y_test_pred)
+        r2, mae, mse = regression_metric(y_test, y_test_pred)
         rmse = np.sqrt(mse)
 
         metricas_modelo.append({
             "metrica": metrica,
-            "r2": round(r2, 2),
-            "mae": round(mae, 2),
-            "mse": round(mse, 2),
-            "rmse": round(rmse, 2)
+            "r2": round(float(r2), 2),
+            "mae": round(float(mae), 2),
+            "mse": round(float(mse), 2),
+            "rmse": round(float(rmse), 2)
         })
 
-        model = LinearRegression()
-        model.fit(X, y)
-
-        previsoes = model.predict(future_min)
+        # reajusta com todos os dados e prevê a próxima hora
+        a, b = np.polyfit(x, y, 1)
+        previsoes = a * future_min.flatten() + b
 
         if metrica in ["CPU"] or (metrica == "RAM" and medicoes.get("RAM") == "%"):
             previsoes = np.clip(previsoes, 0, 100)
@@ -549,7 +551,6 @@ def client_analysis(json_clp, s3):
             ping = ping_performance(df)
             upload_json(s3, ping, build_key(base, "clp-ping", location, formatt))
 
-        # TODO: Vaidar medições e script
         if "CPU" in value["medicoes"] or "SCAN" in value["medicoes"] or "RAM" in value["medicoes"]:
             # CPU performance padrão - gráfico de linhas
             scan_cpu = scan_cpu_performance(df, value["medicoes"], location)
@@ -692,6 +693,14 @@ def main():
     macro_clp.client_macro_analysis(json_clp, s3)
 
     print(f"[{datetime.now()}] PIPELINE GOLD FINALIZADO COM SUCESSO")
+
+def lambda_handler(event, context):
+    # TODO implement
+    main()
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Pipeline gold finalizado!')
+    }
 
 
 if __name__ == "__main__":
