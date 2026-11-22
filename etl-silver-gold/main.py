@@ -16,6 +16,7 @@ from sklearn.model_selection import train_test_split
 from botocore.exceptions import ClientError
 import io
 import macro_modelo
+import micro_modelo
 
 os.environ.setdefault("AWS_BUCKET_NAME", "s3-mind-26")
 
@@ -652,7 +653,9 @@ def provider_analysis(json_clp, s3):
                     df_empresa = pd.concat(
                         [df_empresa, df_clp],
                         ignore_index=True
-                    )        
+                    )
+
+        micro_modelo.atualizar(s3, empresa, df_empresa)
         macro_modelo.atualizar(s3, empresa)
         model = model_analysis(df_empresa)
         model_score = model_health_score(df_empresa)
