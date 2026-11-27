@@ -212,7 +212,7 @@ def listar_ultimos_arquivos(s3):
   ultimos_arquivos = {}
 
   # O S3 devolve os arquivos aos poucos (em páginas), então percorremos página por página
-  for pagina in paginator.paginate(Bucket=nome_do_bucket, Prefix="silver/"):
+  for pagina in paginador.paginate(Bucket=nome_do_bucket, Prefix="silver/"):
     arquivos_da_pagina = pagina.get("Contents", [])
 
     for arquivo in arquivos_da_pagina:

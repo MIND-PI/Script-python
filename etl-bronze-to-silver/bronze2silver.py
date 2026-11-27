@@ -1,13 +1,18 @@
 import boto3
 import os
 import csv
-from dotenv import load_dotenv
 from io import StringIO
 import math
 import mysql.connector
 from datetime import datetime, timedelta, timezone
+import json
 
-load_dotenv()
+# Poder rodar local e não rodar
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 BUCKET = os.getenv("AWS_BUCKET_NAME")
 
@@ -148,73 +153,86 @@ def listar_arquivos(prefixo):
         arquivos.extend(pagina.get("Contents", []))
     return arquivos
 
-limite_tempo = datetime.now(timezone.utc) - timedelta(minutes=15)
 
-for arquivo in listar_arquivos("bronze/"):
-    if arquivo["LastModified"] < limite_tempo:
-        continue
+def main():
+    limite_tempo = datetime.now(timezone.utc) - timedelta(minutes=15)
 
-    arquivo_bronze = arquivo["Key"]
-    if not arquivo_bronze.endswith(".csv"):
-        continue
+    for arquivo in listar_arquivos("bronze/"):
+        if arquivo["LastModified"] < limite_tempo:
+            continue
 
-    print(f"\nArquivo: {arquivo_bronze}")
-    resposta_csv = s3.get_object(Bucket=BUCKET, Key=arquivo_bronze)
-    conteudo = resposta_csv["Body"].read().decode("utf-8")
-    leitor = csv.DictReader(StringIO(conteudo))
-    registros = list(leitor)
-    if not registros:
-        print("CSV vazio. Arquivo ignorado.")
-        continue
-    if "id_fornecedor" not in registros[0]:
-        print("Arquivo ignorado: coluna id_fornecedor não encontrada.")
-        continue
-    for linha in registros:
-        for coluna in linha:
-            linha[coluna] = limpar_valor(linha[coluna])
-        linha["uptime_horas_minutos"] = converter_uptime(linha["uptime_segundos"])
-        linha["porcentagem_uso_cpu"] = validar_percentual(linha["porcentagem_uso_cpu"], "CPU")
-        linha["porcentagem_uso_ram"] = validar_percentual(linha["porcentagem_uso_ram"], "RAM")
-        linha["porcentagem_uso_swap"] = validar_percentual(linha["porcentagem_uso_swap"], "Swap")
-        limites = buscar_limites(linha["id_clp"])
-        linha["health_score"] = calcular_health_score(
-            cpu=linha["porcentagem_uso_cpu"],
-            ram=linha["porcentagem_uso_ram"],
-            swap=linha["porcentagem_uso_swap"],
-            scan_time=linha["scan_time_ms"],
-            latencia=linha["latencia_ms"],
-            limites=limites
+        arquivo_bronze = arquivo["Key"]
+        if not arquivo_bronze.endswith(".csv"):
+            continue
+
+        print(f"\nArquivo: {arquivo_bronze}")
+        resposta_csv = s3.get_object(Bucket=BUCKET, Key=arquivo_bronze)
+        conteudo = resposta_csv["Body"].read().decode("utf-8")
+        leitor = csv.DictReader(StringIO(conteudo))
+        registros = list(leitor)
+        if not registros:
+            print("CSV vazio. Arquivo ignorado.")
+            continue
+        if "id_fornecedor" not in registros[0]:
+            print("Arquivo ignorado: coluna id_fornecedor não encontrada.")
+            continue
+        for linha in registros:
+            for coluna in linha:
+                linha[coluna] = limpar_valor(linha[coluna])
+            linha["uptime_horas_minutos"] = converter_uptime(linha["uptime_segundos"])
+            linha["porcentagem_uso_cpu"] = validar_percentual(linha["porcentagem_uso_cpu"], "CPU")
+            linha["porcentagem_uso_ram"] = validar_percentual(linha["porcentagem_uso_ram"], "RAM")
+            linha["porcentagem_uso_swap"] = validar_percentual(linha["porcentagem_uso_swap"], "Swap")
+            limites = buscar_limites(linha["id_clp"])
+            linha["health_score"] = calcular_health_score(
+                cpu=linha["porcentagem_uso_cpu"],
+                ram=linha["porcentagem_uso_ram"],
+                swap=linha["porcentagem_uso_swap"],
+                scan_time=linha["scan_time_ms"],
+                latencia=linha["latencia_ms"],
+                limites=limites
+            )
+            linha["alerta_cpu"] = passou_do_limite(linha["porcentagem_uso_cpu"], limites.get("cpu"))
+            linha["alerta_ram"] = passou_do_limite(linha["porcentagem_uso_ram"], limites.get("ram"))
+            linha["alerta_swap"] = passou_do_limite(linha["porcentagem_uso_swap"], limites.get("swap"))
+            linha["alerta_scan"] = passou_do_limite(linha["scan_time_ms"], limites.get("scan_time"))
+            linha["alerta_ping"] = passou_do_limite(linha["latencia_ms"], limites.get("latencia"))
+            linha["alerta_loss"] = passou_do_limite(linha["perda_pacotes"], limites.get("perda_pacotes"))
+            colunas_decimais = [
+                "porcentagem_uso_cpu", "porcentagem_uso_ram", "porcentagem_uso_swap",
+                "scan_time_ms", "latencia_ms", "health_score", "ram_total_gb",
+                "ram_disponivel_gb", "ram_usada_gb", "vel_upload", "vel_download"
+            ]
+            for coluna in colunas_decimais:
+                if coluna in linha:
+                    linha[coluna] = formatar_decimal(linha[coluna])
+        id_empresa = registros[0]["id_empresa"]
+        saida = StringIO()
+        colunas = list(registros[0].keys())
+        escritor = csv.DictWriter(saida, fieldnames=colunas)
+        escritor.writeheader()
+        escritor.writerows(registros)
+        conteudo_transformado = saida.getvalue()
+        nome_arquivo = arquivo_bronze.split("/")[-1]
+        arquivo_silver = f"silver/{nome_arquivo}"
+        print(f"ID da Empresa: {id_empresa}")
+        print(f"ID do Fornecedor: {registros[0]['id_fornecedor']}")
+        print(f"Destino na Silver: {arquivo_silver}")
+        s3.put_object(
+            Bucket=BUCKET,
+            Key=arquivo_silver,
+            Body=conteudo_transformado.encode("utf-8"),
+            ContentType="text/csv"
         )
-        linha["alerta_cpu"] = passou_do_limite(linha["porcentagem_uso_cpu"], limites.get("cpu"))
-        linha["alerta_ram"] = passou_do_limite(linha["porcentagem_uso_ram"], limites.get("ram"))
-        linha["alerta_swap"] = passou_do_limite(linha["porcentagem_uso_swap"], limites.get("swap"))
-        linha["alerta_scan"] = passou_do_limite(linha["scan_time_ms"], limites.get("scan_time"))
-        linha["alerta_ping"] = passou_do_limite(linha["latencia_ms"], limites.get("latencia"))
-        linha["alerta_loss"] = passou_do_limite(linha["perda_pacotes"], limites.get("perda_pacotes"))
-        colunas_decimais = [
-            "porcentagem_uso_cpu", "porcentagem_uso_ram", "porcentagem_uso_swap",
-            "scan_time_ms", "latencia_ms", "health_score", "ram_total_gb",
-            "ram_disponivel_gb", "ram_usada_gb", "vel_upload", "vel_download"
-        ]
-        for coluna in colunas_decimais:
-            if coluna in linha:
-                linha[coluna] = formatar_decimal(linha[coluna])
-    id_empresa = registros[0]["id_empresa"]
-    saida = StringIO()
-    colunas = list(registros[0].keys())
-    escritor = csv.DictWriter(saida, fieldnames=colunas)
-    escritor.writeheader()
-    escritor.writerows(registros)
-    conteudo_transformado = saida.getvalue()
-    nome_arquivo = arquivo_bronze.split("/")[-1]
-    arquivo_silver = f"silver/{nome_arquivo}"
-    print(f"ID da Empresa: {id_empresa}")
-    print(f"ID do Fornecedor: {registros[0]['id_fornecedor']}")
-    print(f"Destino na Silver: {arquivo_silver}")
-    s3.put_object(
-        Bucket=BUCKET,
-        Key=arquivo_silver,
-        Body=conteudo_transformado.encode("utf-8"),
-        ContentType="text/csv"
-    )
-    print("Arquivo enviado para a Silver!")
+        print("Arquivo enviado para a Silver!")
+
+def lambda_handler(event, context):
+    # TODO implement
+    main()
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Hello from Lambda!')
+    }
+
+if __name__ == "__main__":
+    main()
