@@ -92,7 +92,7 @@ def passou_do_limite(valor, limite):
 FRACAO_SEM_PENALIDADE = 0.5
 
 def calcular_health_score(cpu, ram, swap, scan_time, latencia, limites):
-    pesos = {"cpu": 20, "ram": 20, "swap": 15, "scan_time": 20, "latencia": 15}
+    pesos = {"cpu": 30, "ram": 25, "swap": 5, "scan_time": 25, "latencia": 5}
     valores = {"cpu": cpu, "ram": ram, "swap": swap, "scan_time": scan_time, "latencia": latencia}
     soma_notas = 0
     soma_pesos = 0
